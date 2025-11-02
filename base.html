@@ -20,8 +20,13 @@
 		let	myCameraObj = new myCamera();
 		let myTestCameraObj = new myCamera();
 
+		let pMatrix = mat4.create();
+		let vMatrix = mat4.create();
+
 		let rotateValue = 0.0;
 		let mySceneObjects = [];
+
+		let FBO, fboTexture, depthTexture, quadProgram, quadBuffer;
 
 		// Read the mesh file as text
 		let skullMeshStr = readTextFile("meshes/stool.obj");
@@ -54,6 +59,78 @@
 				// enable depth testing for correct 3D rendering
 				gl.enable(gl.DEPTH_TEST);
 				gl.clearDepth(1.0);
+
+				// Create FBO texture
+				fboTexture = gl.createTexture();
+				gl.bindTexture(gl.TEXTURE_2D, fboTexture);
+				gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, canvas.width, canvas.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+				// Create depth texture
+				let depthTexture = gl.createTexture();
+				gl.bindTexture(gl.TEXTURE_2D, depthTexture);
+				gl.texImage2D(gl.TEXTURE_2D, 0, gl.DEPTH_COMPONENT, canvas.width, canvas.height, 0, gl.DEPTH_COMPONENT, gl.UNSIGNED_SHORT, null);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+				// Create FBO
+				FBO = gl.createFramebuffer();
+				gl.bindFramebuffer(gl.FRAMEBUFFER, FBO);
+				gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, fboTexture, 0);
+				gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.TEXTURE_2D, depthTexture, 0);
+				gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+
+				// Create quad program
+				let quadVS = `
+					attribute vec2 aPosition;
+					attribute vec2 aTexCoord;
+					varying vec2 vTexCoord;
+					void main() {
+						gl_Position = vec4(aPosition, 0.0, 1.0);
+						vTexCoord = aTexCoord;
+					}
+				`;
+				let quadFS = `
+					precision mediump float;
+					uniform sampler2D uTexture;
+					uniform sampler2D uDepthTexture;
+					varying vec2 vTexCoord;
+					void main() {
+						vec4 color = texture2D(uTexture, vTexCoord);
+						float depth = texture2D(uDepthTexture, vTexCoord).r;
+						// Use depth here, for example, modulate color based on depth
+						gl_FragColor = color * (1.0 - depth);
+					}
+				`;
+				let vertexShader = makeShader(quadVS, gl.VERTEX_SHADER);
+				let fragmentShader = makeShader(quadFS, gl.FRAGMENT_SHADER);
+				quadProgram = gl.createProgram();
+				gl.attachShader(quadProgram, vertexShader);
+				gl.attachShader(quadProgram, fragmentShader);
+				gl.linkProgram(quadProgram);
+				if (!gl.getProgramParameter(quadProgram, gl.LINK_STATUS)) {
+					alert("Unable to initialize quad shader program.");
+				}
+				quadProgram.positionAttribute = gl.getAttribLocation(quadProgram, "aPosition");
+				quadProgram.texCoordAttribute = gl.getAttribLocation(quadProgram, "aTexCoord");
+				quadProgram.textureUniform = gl.getUniformLocation(quadProgram, "uTexture");
+				quadProgram.depthTextureUniform = gl.getUniformLocation(quadProgram, "uDepthTexture");
+
+				// Quad vertices: position x,y, tex u,v
+				let quadVertices = new Float32Array([
+					-1, -1, 0, 0,
+					 1, -1, 1, 0,
+					-1,  1, 0, 1,
+					 1,  1, 1, 1
+				]);
+				quadBuffer = gl.createBuffer();
+				gl.bindBuffer(gl.ARRAY_BUFFER, quadBuffer);
+				gl.bufferData(gl.ARRAY_BUFFER, quadVertices, gl.STATIC_DRAW);
 
 				let vs_r_source = readTextFile("shader/vs_lit.vert");
 				let fs_r_source = readTextFile("shader/fs_lit.frag");
@@ -115,12 +192,10 @@
 
 			updateCamera(myCameraObj);
 			//set view and projection matrix
-			let vMat4 = mat4.create();
-			let pMat4 = mat4.create();
-			mat4.perspective(45, canvas.width / canvas.height, 0.1, 100.0, pMat4);
-			mat4.identity(vMat4);
-			mat4.translate(vMat4, [0, 0, -10.0]);
-			mat4.translate(vMat4, [0, sinValue, 0]);
+			mat4.perspective(45, canvas.width / canvas.height, 0.1, 100.0, pMatrix);
+			mat4.identity(vMatrix);
+			mat4.translate(vMatrix, [0, 0, -10.0]);
+			mat4.translate(vMatrix, [0, sinValue, 0]);
 
 			let pMat4sec = mat4.create();
 			mat4.perspective(45, canvas.width / canvas.height, 0.1, 100.0, pMat4sec);
@@ -129,8 +204,8 @@
 			mat4.translate(vMat4sec, [0, 0, -20.0]);
 			
 			
-			updateCamera(myCameraObj, vMat4, pMat4);
-			updateCamera(myTestCameraObj, vMat4, pMat4);
+			updateCamera(myCameraObj, vMatrix, pMatrix);
+			updateCamera(myTestCameraObj, vMatrix, pMatrix);
 			updateCamera(myTestCameraObj, vMat4sec, pMat4sec);
 
 			let rotAxis = new Array(0,1,0);
@@ -152,13 +227,30 @@
 
 		function drawScene()
 		{
+			// Render to FBO
+			gl.bindFramebuffer(gl.FRAMEBUFFER, FBO);
+			gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 			myMeshObj.draw(myCameraObj);
-			myMeshObj2.draw(myTestCameraObj);
+			myMeshObj2.draw(myCameraObj);
 
+			// Render to screen
+			gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+			gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
-			// for (let obj of mySceneObjects) {
-			// 	obj.draw(myCameraObj);
-			// }
+			// Draw quad with FBO texture
+			gl.useProgram(quadProgram);
+			gl.bindBuffer(gl.ARRAY_BUFFER, quadBuffer);
+			gl.enableVertexAttribArray(quadProgram.positionAttribute);
+			gl.vertexAttribPointer(quadProgram.positionAttribute, 2, gl.FLOAT, false, 16, 0);
+			gl.enableVertexAttribArray(quadProgram.texCoordAttribute);
+			gl.vertexAttribPointer(quadProgram.texCoordAttribute, 2, gl.FLOAT, false, 16, 8);
+			gl.activeTexture(gl.TEXTURE0);
+			gl.bindTexture(gl.TEXTURE_2D, fboTexture);
+			gl.uniform1i(quadProgram.textureUniform, 0);
+			gl.activeTexture(gl.TEXTURE1);
+			gl.bindTexture(gl.TEXTURE_2D, depthTexture);
+			gl.uniform1i(quadProgram.depthTextureUniform, 1);
+			gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 		}
 
 		function readTextFile(file)
@@ -178,6 +270,18 @@
 		    }
 		    rawFile.send(null);
 		    return strText;
+		}
+
+		function makeShader(src, type)
+		{
+			//compile the vertex shader
+			let shader = gl.createShader(type);
+			gl.shaderSource(shader, src);
+			gl.compileShader(shader);
+			if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+				alert("Error compiling shader: " + gl.getShaderInfoLog(shader));
+			}
+			return shader;
 		}
 
 	</script>
