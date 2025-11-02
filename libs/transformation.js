@@ -54,6 +54,57 @@
         getProgram() {
             return this.program;
         }
+
+        initBuffers()
+		{
+            let myObject = this;
+			// initialize WebGL buffers for the mesh (positions, indices, normals)
+			OBJ.initMeshBuffers(gl, myObject.OBJ);
+			console.log('initBuffers: mesh vertices=', myObject.OBJ.vertices ? myObject.OBJ.vertices.length : 0,
+				'indices=', myObject.OBJ.indices ? myObject.OBJ.indices.length : 0,
+				'vertexBuffer=', !!myObject.OBJ.vertexBuffer, 'indexBuffer=', !!myObject.OBJ.indexBuffer);
+			// Compute tangents if textures and normals are present
+			if (myObject.OBJ.textures && myObject.OBJ.vertexNormals) {
+				let tangents = myGenerateTangents(myObject.OBJ.vertices, myObject.OBJ.vertexNormals, myObject.OBJ.textures, myObject.OBJ.indices);
+				myObject.OBJ.tangentBuffer = gl.createBuffer();
+				gl.bindBuffer(gl.ARRAY_BUFFER, myObject.OBJ.tangentBuffer);
+				gl.bufferData(gl.ARRAY_BUFFER, tangents, gl.STATIC_DRAW);
+				myObject.OBJ.tangentBuffer.itemSize = 3;
+				myObject.OBJ.tangentBuffer.numItems = tangents.length / 3;
+			}
+        }
+
+        initShaders(vs_source, fs_source)
+		{
+
+			//compile shaders
+			// makeShader(code, type)
+			let vertexShader = makeShader(vs_source, gl.VERTEX_SHADER);
+			let fragmentShader = makeShader(fs_source, gl.FRAGMENT_SHADER);
+
+			// create, attach and link program
+			let myglProgram = gl.createProgram();
+			gl.attachShader(myglProgram, vertexShader);
+			gl.attachShader(myglProgram, fragmentShader);
+			gl.linkProgram(myglProgram);
+			// support multiple common attribute names
+			
+			let posLoc = gl.getAttribLocation(myglProgram, "aVertexPosition");
+			myglProgram.vertexPositionAttribute = posLoc;
+
+			myglProgram.vertexNormalAttribute = gl.getAttribLocation(myglProgram, "aVertexNormal");
+			myglProgram.textureCoordAttribute = gl.getAttribLocation(myglProgram, "aTextureCoord");
+			myglProgram.vertexTangentAttribute = gl.getAttribLocation(myglProgram, "aVertexTangent");
+			this.setProgram(myglProgram);
+
+			if (!gl.getProgramParameter(myglProgram, gl.LINK_STATUS)) {
+				alert("Unable to initialize the shader program (program 1).\n" + gl.getProgramInfoLog(myglProgram));
+			}
+
+            myglProgram.pMatrixUniform = gl.getUniformLocation(myglProgram, "uPMatrix");
+			myglProgram.vMatrixUniform = gl.getUniformLocation(myglProgram, "uVMatrix");
+			myglProgram.lwMatrixUniform = gl.getUniformLocation(myglProgram, "uLWMatrix");
+		}
     };
 
     // Provide a generateTangents function that doesn't rely on Vector3

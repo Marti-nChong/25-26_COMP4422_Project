@@ -129,34 +129,6 @@
 
 		}
 
-		function initShaders(my3DObject, vs_source, fs_source)
-		{
-
-			//compile shaders
-			// makeShader(code, type)
-			vertexShader = makeShader(vs_source, gl.VERTEX_SHADER);
-			fragmentShader = makeShader(fs_source, gl.FRAGMENT_SHADER);
-			
-			// create, attach and link program
-			let myglProgram = gl.createProgram();
-			gl.attachShader(myglProgram, vertexShader);
-			gl.attachShader(myglProgram, fragmentShader);
-			gl.linkProgram(myglProgram);
-			// support multiple common attribute names
-			
-			let posLoc = gl.getAttribLocation(myglProgram, "aVertexPosition");
-			myglProgram.vertexPositionAttribute = posLoc;
-
-			myglProgram.vertexNormalAttribute = gl.getAttribLocation(myglProgram, "aVertexNormal");
-			myglProgram.textureCoordAttribute = gl.getAttribLocation(myglProgram, "aTextureCoord");
-			myglProgram.vertexTangentAttribute = gl.getAttribLocation(myglProgram, "aVertexTangent");
-			my3DObject.setProgram(myglProgram);
-
-			if (!gl.getProgramParameter(myglProgram, gl.LINK_STATUS)) {
-				alert("Unable to initialize the shader program (program 1).\n" + gl.getProgramInfoLog(myglProgram));
-			}
-		}
-
 		function makeShader(src, type)
 		{
 			//compile the vertex shader
@@ -167,24 +139,6 @@
 				alert("Error compiling shader: " + gl.getShaderInfoLog(shader));
 			}
 			return shader;
-		}
-
-		function initBuffers(my3DObject)
-		{
-			// initialize WebGL buffers for the mesh (positions, indices, normals)
-			OBJ.initMeshBuffers(gl, my3DObject.OBJ);
-			console.log('initBuffers: mesh vertices=', my3DObject.OBJ.vertices ? my3DObject.OBJ.vertices.length : 0,
-				'indices=', my3DObject.OBJ.indices ? my3DObject.OBJ.indices.length : 0,
-				'vertexBuffer=', !!my3DObject.OBJ.vertexBuffer, 'indexBuffer=', !!my3DObject.OBJ.indexBuffer);
-			// Compute tangents if textures and normals are present
-			if (my3DObject.OBJ.textures && my3DObject.OBJ.vertexNormals) {
-				let tangents = myGenerateTangents(my3DObject.OBJ.vertices, my3DObject.OBJ.vertexNormals, my3DObject.OBJ.textures, my3DObject.OBJ.indices);
-				my3DObject.OBJ.tangentBuffer = gl.createBuffer();
-				gl.bindBuffer(gl.ARRAY_BUFFER, my3DObject.OBJ.tangentBuffer);
-				gl.bufferData(gl.ARRAY_BUFFER, tangents, gl.STATIC_DRAW);
-				my3DObject.OBJ.tangentBuffer.itemSize = 3;
-				my3DObject.OBJ.tangentBuffer.numItems = tangents.length / 3;
-			}
 		}
 
 		function loadTexture(my3DObject, src)
@@ -243,8 +197,6 @@
 				gl.bindBuffer(gl.ARRAY_BUFFER, my3DObject.OBJ.vertexBuffer);
 				var itemSize = my3DObject.OBJ.vertexBuffer.itemSize || 3;
 				gl.vertexAttribPointer(Myprogram.vertexPositionAttribute, itemSize, gl.FLOAT, false, 0, 0);
-			} else {
-				// fallback: do nothing if attribute not used by this shader
 			}
 
 
@@ -269,22 +221,24 @@
 				console.log("Uploaded light direction: " + mainDirectionLight);
 			}
 
-			// Texture coords if present in shader and mesh
-			if (Myprogram.vertexNormalAttribute >= 0 && my3DObject.OBJ.vertexNormals.length) {
-				gl.enableVertexAttribArray(Myprogram.vertexNormalAttribute);
-				gl.bindBuffer(gl.ARRAY_BUFFER, my3DObject.OBJ.normalBuffer);
-				var itemSize = my3DObject.OBJ.normalBuffer.itemSize || 3;
-				gl.vertexAttribPointer(Myprogram.vertexNormalAttribute, itemSize, gl.FLOAT, false, 0, 0);
-			} else if (Myprogram.vertexNormalAttribute >= 0) {
-				gl.disableVertexAttribArray(Myprogram.vertexNormalAttribute);
-			}
-
 			if (Myprogram.textureCoordAttribute >= 0 && my3DObject.OBJ.textures.length) {
 				gl.enableVertexAttribArray(Myprogram.textureCoordAttribute);
 				gl.bindBuffer(gl.ARRAY_BUFFER, my3DObject.OBJ.textureBuffer);
 				gl.vertexAttribPointer(Myprogram.textureCoordAttribute, my3DObject.OBJ.textureBuffer.itemSize, gl.FLOAT, false, 0, 0);
 			} else if (Myprogram.textureCoordAttribute >= 0) {
 				gl.disableVertexAttribArray(Myprogram.textureCoordAttribute);
+			}
+
+			// Texture coords if present in shader and mesh
+			if (Myprogram.vertexNormalAttribute >= 0 && my3DObject.OBJ.vertexNormals.length) {
+
+				gl.enableVertexAttribArray(Myprogram.vertexNormalAttribute);
+				gl.bindBuffer(gl.ARRAY_BUFFER, my3DObject.OBJ.normalBuffer);
+				
+				var itemSize = my3DObject.OBJ.normalBuffer.itemSize || 3;
+				gl.vertexAttribPointer(Myprogram.vertexNormalAttribute, itemSize, gl.FLOAT, false, 0, 0);
+			} else if (Myprogram.vertexNormalAttribute >= 0) {
+				gl.disableVertexAttribArray(Myprogram.vertexNormalAttribute);
 			}
 
 			if (Myprogram.vertexTangentAttribute >= 0 && my3DObject.OBJ.tangentBuffer) {
@@ -298,7 +252,6 @@
 			// Binding the triangle index buffer and drawing
 			gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, my3DObject.OBJ.indexBuffer);
 			gl.drawElements(gl.TRIANGLES, my3DObject.OBJ.indexBuffer.numItems, gl.UNSIGNED_SHORT, 0);	
-
 		}
 
 		function drawScene()
@@ -306,12 +259,6 @@
 			for (let obj of mySceneObjects) {
 				drawMy3DObject(obj);
 			}
-		}
-
-		function initMatrixUniforms(myglProgram){
-			myglProgram.pMatrixUniform = gl.getUniformLocation(myglProgram, "uPMatrix");
-			myglProgram.vMatrixUniform = gl.getUniformLocation(myglProgram, "uVMatrix");
-			myglProgram.lwMatrixUniform = gl.getUniformLocation(myglProgram, "uLWMatrix");
 		}
 
 		function updateMatrixUniforms(myglProgram) {
@@ -327,9 +274,8 @@
 
 		function initMy3DObject(my3DObject, vs_source, fs_source)
 		{
-			initBuffers(my3DObject);
-			initShaders(my3DObject, vs_source, fs_source);
-			initMatrixUniforms(my3DObject.getProgram());
+			my3DObject.initBuffers();
+			my3DObject.initShaders(vs_source, fs_source);
 		}
 
 		function readTextFile(file)
