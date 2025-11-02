@@ -12,123 +12,7 @@
 	<script src="libs/transformation.js"></script>
 	<script src="libs/noisejs-master/perlin.js"></script>
 	<script src="libs/webgl-utils.js"></script>
-
-	<script id="shader-vs" type="x-shader/x-vertex">
-		attribute vec3 aVertexPosition;
-		uniform mat4 uVMatrix;
-		uniform mat4 uPMatrix;
-		uniform mat4 uLWMatrix;
-		varying highp vec4 vColor;
-		void main(void) {
-			gl_Position = uPMatrix * uVMatrix * uLWMatrix * vec4(aVertexPosition, 1.0);
-			vColor = vec4(1.0, 1.0, 1.0, 1.0);
-		}
-	</script>
-	<script id="shader-fs" type="x-shader/x-fragment">
-		varying highp vec4 vColor;
-		void main(void) {
-			gl_FragColor = vColor;
-		}
-	</script>
-	<script id="shader-fs-red" type="x-shader/x-fragment">
-		varying highp vec4 vColor;
-		void main(void) {
-			gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);
-		}
-	</script>
-		<script id="shader-vs-texture" type="x-shader/x-vertex">
-		attribute vec3 aVertexPosition;
-		attribute vec2 aTextureCoord;
-		uniform mat4 uVMatrix;
-		uniform mat4 uPMatrix;
-		uniform mat4 uLWMatrix;
-		varying vec2 vTextureCoord;
-		void main(void) {
-			gl_Position = uPMatrix * uVMatrix * uLWMatrix * vec4(aVertexPosition, 1.0);
-			vTextureCoord = aTextureCoord;
-		}
-	</script>
-
-	<script id="shader-fs-albedo" type="x-shader/x-fragment">
-	    precision mediump float;
-	    varying vec2 vTextureCoord;
-	    uniform sampler2D uSampler; // base/albedo
-	    void main(void) {
-	        // Show normal map colors directly for debugging/visualisation.
-	        // Samples come in [0,1] and represent tangent-space normals encoded
-	        // as RGB; we simply output the sampled color.
-			vec4 albedoColor = texture2D(uSampler, vTextureCoord);
-	        gl_FragColor = vec4(1.0, 1.0, 1.0, 1.0); // Placeholder
-			gl_FragColor = albedoColor;
-	    }
-	</script>
-
-	<script id="shader-fs-texture" type="x-shader/x-fragment">
-	    precision mediump float;
-	    varying vec2 vTextureCoord;
-	    uniform sampler2D uSampler; // base/albedo
-	    uniform sampler2D uNormalSampler; // normal map (displayed directly)
-	    void main(void) {
-	        // Show normal map colors directly for debugging/visualisation.
-	        // Samples come in [0,1] and represent tangent-space normals encoded
-	        // as RGB; we simply output the sampled color.
-			vec4 albedoColor = texture2D(uSampler, vTextureCoord);
-	        vec4 normalColor = texture2D(uNormalSampler, vTextureCoord);
-	        gl_FragColor = vec4(1.0, 1.0, 1.0, 1.0); // Placeholder
-			gl_FragColor = albedoColor;
-	    }
-	</script>
 	
-	<script id="shader-vs-lit" type="x-shader/x-vertex">
-		attribute vec3 aVertexPosition;
-		attribute vec3 aVertexNormal;
-		attribute vec2 aTextureCoord;
-		attribute vec3 aVertexTangent;
-		uniform mat4 uVMatrix;
-		uniform mat4 uPMatrix;
-		uniform mat4 uLWMatrix;
-		varying vec2 vTextureCoord;
-		varying vec3 vVertexNormal;
-		varying vec3 vTangent;
-		varying vec3 vBitangent;
-
-		void main(void) {
-			gl_Position = uPMatrix * uVMatrix * uLWMatrix * vec4(aVertexPosition, 1.0);
-			vTextureCoord = aTextureCoord;
-			vVertexNormal = normalize(mat3(uLWMatrix) * aVertexNormal);
-			vTangent = aVertexTangent;
-		}
-	</script>
-
-	<script id="shader-fs-lit" type="x-shader/x-fragment">
-	    precision mediump float;
-		varying vec3 vVertexNormal;
-	    varying vec2 vTextureCoord;
-		varying vec3 vTangent;
-		varying vec3 vBitangent;
-	    uniform sampler2D uSampler; // base/albedo
-	    uniform sampler2D uNormalSampler; // normal map
-	    void main(void) {
-			vec4 albedoColor = texture2D(uSampler, vTextureCoord);
-	        vec4 normalColor = texture2D(uNormalSampler, vTextureCoord);
-
-			// Normal map in tangent space
-			vec3 normalMap = normalize(normalColor.xyz * 2.0 - 1.0);
-
-			// TBN matrix
-			mat3 tbn = mat3(vTangent, vBitangent, vVertexNormal);
-
-			// Transform to world space
-			vec3 normal = normalize(tbn * normalMap);
-
-			vec3 lightDir = normalize(vec3(1.0, 0.0, 0.0));
-			float lightIntensity = max(dot(normal, lightDir), 0.0);
-			// lightIntensity = max(dot(vVertexNormal, lightDir), 0.0);
-			gl_FragColor = vec4(albedoColor.rgb * lightIntensity, albedoColor.a);
-		}
-	</script>
-
-
 	<script>
 		let gl = null,
 			canvas = null;
@@ -170,12 +54,9 @@
 				// enable depth testing for correct 3D rendering
 				gl.enable(gl.DEPTH_TEST);
 				gl.clearDepth(1.0);
-				//get shader source
-				let vs_source = document.getElementById('shader-vs-texture').innerHTML;
-				let fs_source = document.getElementById('shader-fs-albedo').innerHTML;
-				
-				let vs_r_source = document.getElementById('shader-vs-lit').innerHTML;
-				let fs_r_source = document.getElementById('shader-fs-lit').innerHTML;
+
+				let vs_r_source = readTextFile("shader/vs_lit.vert");
+				let fs_r_source = readTextFile("shader/fs_lit.frag");
 
 				initMy3DObject(myMeshObj, vs_r_source, fs_r_source);
 				initMy3DObject(myMeshObj2, vs_r_source, fs_r_source);
