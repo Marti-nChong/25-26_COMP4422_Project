@@ -16,6 +16,29 @@
         console.error('transformation.js: global `OBJ` is missing. Make sure webgl-obj-loader.js is loaded before this file.');
     }
 
+    window.myCamera = class myCamera {
+        constructor() {
+            this.matView = mat4.create();
+            this.matProjection = mat4.create();
+        }
+
+        setViewMatrix(matView) {
+            this.matView = matView;
+        }
+
+        getViewMatrix() {
+            return this.matView;
+        }
+
+        setProjectionMatrix(matProjection) {
+            this.matProjection = matProjection;
+        }
+
+        getProjectionMatrix() {
+            return this.matProjection;
+        }
+    };
+
     // Expose the class as a global so the inline script in the HTML can use it
     // with `new my3DObject(...)`.
     window.my3DObject = class my3DObject {
@@ -55,6 +78,43 @@
             return this.program;
         }
 
+        init(vs_source, fs_source)
+        {
+            this.initBuffers();
+            this.initShaders(vs_source, fs_source);
+        }
+
+        loadTexture(src)
+	    {
+	        this.texture = gl.createTexture();
+	        this.texture.image = new Image();
+	        this.texture.image.onload = () => {
+				gl.bindTexture(gl.TEXTURE_2D, this.texture);
+				gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+				gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this.texture.image);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+	            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+				gl.bindTexture(gl.TEXTURE_2D, null);
+	        }
+	        this.texture.image.src = src;
+	    }
+
+        loadNormalTexture(src)
+		{
+	        this.normalTexture = gl.createTexture();
+	        this.normalTexture.image = new Image();
+
+			this.normalTexture.image.onload = () => {
+				gl.bindTexture(gl.TEXTURE_2D, this.normalTexture);
+				gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+				gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this.normalTexture.image);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+	            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+				gl.bindTexture(gl.TEXTURE_2D, null);
+			}
+	        this.normalTexture.image.src = src;
+		}
+
         initBuffers()
 		{
             let myObject = this;
@@ -77,6 +137,19 @@
         initShaders(vs_source, fs_source)
 		{
 
+            
+            let makeShader = function(src, type)
+            {
+                //compile the vertex shader
+                let shader = gl.createShader(type);
+                gl.shaderSource(shader, src);
+                gl.compileShader(shader);
+                if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+                    alert("Error compiling shader: " + gl.getShaderInfoLog(shader));
+                }
+                return shader;
+            }
+                
 			//compile shaders
 			// makeShader(code, type)
 			let vertexShader = makeShader(vs_source, gl.VERTEX_SHADER);
@@ -105,7 +178,88 @@
 			myglProgram.vMatrixUniform = gl.getUniformLocation(myglProgram, "uVMatrix");
 			myglProgram.lwMatrixUniform = gl.getUniformLocation(myglProgram, "uLWMatrix");
 		}
+
+        draw(camera)
+        {
+            let Myprogram = this.getProgram();
+            let lwMatrix = this.getMatrix();
+            let vMatrix = camera.getViewMatrix();
+            let pMatrix = camera.getProjectionMatrix();
+
+            // Activate program first
+            gl.useProgram(Myprogram);;
+
+            if (Myprogram.pMatrixUniform)
+				gl.uniformMatrix4fv(Myprogram.pMatrixUniform, false, pMatrix);
+			if (Myprogram.vMatrixUniform)
+				gl.uniformMatrix4fv(Myprogram.vMatrixUniform, false, vMatrix);
+            if (Myprogram.lwMatrixUniform)
+                gl.uniformMatrix4fv(Myprogram.lwMatrixUniform, false, lwMatrix );
+
+            // Position attribute (only enable if valid)
+            if (Myprogram.vertexPositionAttribute >= 0) {
+                gl.enableVertexAttribArray(Myprogram.vertexPositionAttribute);
+                gl.bindBuffer(gl.ARRAY_BUFFER, this.OBJ.vertexBuffer);
+                var itemSize = this.OBJ.vertexBuffer.itemSize || 3;
+                gl.vertexAttribPointer(Myprogram.vertexPositionAttribute, itemSize, gl.FLOAT, false, 0, 0);
+            }
+
+
+            // For Textured objects:
+            // Bind textures and set sampler uniforms (albedo -> unit 0, normal -> unit 1)
+            let samplerLoc = gl.getUniformLocation(Myprogram, "uSampler");
+            let normalSamplerLoc = gl.getUniformLocation(Myprogram, "uNormalSampler");
+            let uniformLightDirLoc = gl.getUniformLocation(Myprogram, "uLightDirection");
+            if (samplerLoc) {
+                gl.activeTexture(gl.TEXTURE0);
+                gl.bindTexture(gl.TEXTURE_2D, this.texture);
+                gl.uniform1i(samplerLoc, 0);
+                // Object 2 not arriving 
+            }
+            if (normalSamplerLoc) {
+                gl.activeTexture(gl.TEXTURE1);
+                gl.bindTexture(gl.TEXTURE_2D, this.normalTexture);
+                gl.uniform1i(normalSamplerLoc, 1);
+            }
+            if (uniformLightDirLoc) {
+                gl.uniform3fv(uniformLightDirLoc, mainDirectionLight);
+                console.log("Uploaded light direction: " + mainDirectionLight);
+            }
+
+            if (Myprogram.textureCoordAttribute >= 0 && this.OBJ.textures.length) {
+                gl.enableVertexAttribArray(Myprogram.textureCoordAttribute);
+                gl.bindBuffer(gl.ARRAY_BUFFER, this.OBJ.textureBuffer);
+                gl.vertexAttribPointer(Myprogram.textureCoordAttribute, this.OBJ.textureBuffer.itemSize, gl.FLOAT, false, 0, 0);
+            } else if (Myprogram.textureCoordAttribute >= 0) {
+                gl.disableVertexAttribArray(Myprogram.textureCoordAttribute);
+            }
+
+            // Texture coords if present in shader and mesh
+            if (Myprogram.vertexNormalAttribute >= 0 && this.OBJ.vertexNormals.length) {
+
+                gl.enableVertexAttribArray(Myprogram.vertexNormalAttribute);
+                gl.bindBuffer(gl.ARRAY_BUFFER, this.OBJ.normalBuffer);
+                
+                var itemSize = this.OBJ.normalBuffer.itemSize || 3;
+                gl.vertexAttribPointer(Myprogram.vertexNormalAttribute, itemSize, gl.FLOAT, false, 0, 0);
+            } else if (Myprogram.vertexNormalAttribute >= 0) {
+                gl.disableVertexAttribArray(Myprogram.vertexNormalAttribute);
+            }
+
+            if (Myprogram.vertexTangentAttribute >= 0 && this.OBJ.tangentBuffer) {
+                gl.enableVertexAttribArray(Myprogram.vertexTangentAttribute);
+                gl.bindBuffer(gl.ARRAY_BUFFER, this.OBJ.tangentBuffer);
+                gl.vertexAttribPointer(Myprogram.vertexTangentAttribute, 3, gl.FLOAT, false, 0, 0);
+            } else if (Myprogram.vertexTangentAttribute >= 0) {
+                gl.disableVertexAttribArray(Myprogram.vertexTangentAttribute);
+            }
+
+            // Binding the triangle index buffer and drawing
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.OBJ.indexBuffer);
+            gl.drawElements(gl.TRIANGLES, this.OBJ.indexBuffer.numItems, gl.UNSIGNED_SHORT, 0);	
+        }
     };
+
 
     // Provide a generateTangents function that doesn't rely on Vector3
     window.myGenerateTangents = function(vertices, normals, texCoords, indices) {

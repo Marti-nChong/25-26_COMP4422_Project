@@ -9,7 +9,7 @@
 
 	<script src="libs/gl-matrix-min.js"></script>
 	<script src="libs/webgl-obj-loader.js"></script>
-	<script src="libs/transformation.js"></script>
+	<script src="libs/my3DObject.js"></script>
 	<script src="libs/noisejs-master/perlin.js"></script>
 	<script src="libs/webgl-utils.js"></script>
 	
@@ -17,8 +17,8 @@
 		let gl = null,
 			canvas = null;
 
-		let	vMatrix = mat4.create(),
-			pMatrix = mat4.create();
+		let	myCameraObj = new myCamera();
+		let myTestCameraObj = new myCamera();
 
 		let rotateValue = 0.0;
 		let mySceneObjects = [];
@@ -58,12 +58,12 @@
 				let vs_r_source = readTextFile("shader/vs_lit.vert");
 				let fs_r_source = readTextFile("shader/fs_lit.frag");
 
-				initMy3DObject(myMeshObj, vs_r_source, fs_r_source);
-				initMy3DObject(myMeshObj2, vs_r_source, fs_r_source);
-				loadTexture(myMeshObj, "meshes/dirty-car/textures/large_car_d.tga.png");
-				loadNormalTexture(myMeshObj, "meshes/dirty-car/textures/large_car_ddna.tga.png");
-				loadTexture(myMeshObj2, "meshes/textures/Material_albedo.jpeg");
-				loadNormalTexture(myMeshObj2, "meshes/textures/Material_normal.png");
+				myMeshObj.init(vs_r_source, fs_r_source);
+				myMeshObj2.init(vs_r_source, fs_r_source);
+				myMeshObj.loadTexture("meshes/dirty-car/textures/large_car_d.tga.png");
+				myMeshObj.loadNormalTexture("meshes/dirty-car/textures/large_car_ddna.tga.png");
+				myMeshObj2.loadTexture("meshes/textures/Material_albedo.jpeg");
+				myMeshObj2.loadNormalTexture("meshes/textures/Material_normal.png");
 
 				mySceneObjects.push(myMeshObj);
 				mySceneObjects.push(myMeshObj2);
@@ -94,8 +94,9 @@
 			requestAnimationFrame(animLoop, canvas);
 		}
 
-		function updateCamera(){
-			
+		function updateCamera(camera, vMatrix, pMatrix){
+			camera.setViewMatrix(vMatrix);
+			camera.setProjectionMatrix(pMatrix);
 		}
 
 		function updateWebGL()
@@ -112,12 +113,25 @@
 			const frequency = 0.0;
 			const sinValue = Math.sin(timestamp * frequency);
 
-			updateCamera();
+			updateCamera(myCameraObj);
 			//set view and projection matrix
-			mat4.perspective(45, canvas.width / canvas.height, 0.1, 100.0, pMatrix);
-			mat4.identity(vMatrix);
-			mat4.translate(vMatrix, [0, 0, -10.0]);
-			mat4.translate(vMatrix, [0, sinValue, 0]);
+			let vMat4 = mat4.create();
+			let pMat4 = mat4.create();
+			mat4.perspective(45, canvas.width / canvas.height, 0.1, 100.0, pMat4);
+			mat4.identity(vMat4);
+			mat4.translate(vMat4, [0, 0, -10.0]);
+			mat4.translate(vMat4, [0, sinValue, 0]);
+
+			let pMat4sec = mat4.create();
+			mat4.perspective(45, canvas.width / canvas.height, 0.1, 100.0, pMat4sec);
+			let vMat4sec = mat4.create();
+			mat4.identity(vMat4sec);
+			mat4.translate(vMat4sec, [0, 0, -20.0]);
+			
+			
+			updateCamera(myCameraObj, vMat4, pMat4);
+			updateCamera(myTestCameraObj, vMat4, pMat4);
+			updateCamera(myTestCameraObj, vMat4sec, pMat4sec);
 
 			let rotAxis = new Array(0,1,0);
 			let rotateAngleMax = 45.0 * Math.PI / 180.0; // 45 degrees in radians
@@ -129,153 +143,22 @@
 
 		}
 
-		function makeShader(src, type)
-		{
-			//compile the vertex shader
-			let shader = gl.createShader(type);
-			gl.shaderSource(shader, src);
-			gl.compileShader(shader);
-			if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-				alert("Error compiling shader: " + gl.getShaderInfoLog(shader));
-			}
-			return shader;
-		}
-
-		function loadTexture(my3DObject, src)
-	    {
-			let Myprogram = my3DObject.getProgram();
-	        Myprogram.texture = gl.createTexture();
-	        Myprogram.texture.image = new Image();
-	        Myprogram.texture.image.onload = function () {
-				gl.bindTexture(gl.TEXTURE_2D, Myprogram.texture);
-				gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
-				gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, Myprogram.texture.image);
-				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-	            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-				gl.bindTexture(gl.TEXTURE_2D, null);
-	        }
-	        Myprogram.texture.image.src = src;
-	    }
-
-		function loadNormalTexture(my3DObject, src)
-		{
-			let Myprogram = my3DObject.getProgram();
-	        Myprogram.normalTexture = gl.createTexture();
-	        Myprogram.normalTexture.image = new Image();
-			
-			Myprogram.normalTexture.image.onload = function () {
-				gl.bindTexture(gl.TEXTURE_2D, Myprogram.normalTexture);
-				gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
-				gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, Myprogram.normalTexture.image);
-				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-	            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-				gl.bindTexture(gl.TEXTURE_2D, null);
-			}
-	        Myprogram.normalTexture.image.src = src;
-		}
 
 		function updateBuffers()
 		{
 			// no dynamic buffers to update in this example
 		}
 
-		function drawMy3DObject(my3DObject)
-		{
-			let Myprogram = my3DObject.getProgram();
-			let lwMatrix = my3DObject.getMatrix();
-
-			// Activate program first
-			gl.useProgram(Myprogram);
-
-			// Update matrix uniforms
-			updateMatrixUniforms(Myprogram);
-			gl.uniformMatrix4fv(Myprogram.lwMatrixUniform, false, lwMatrix );
-
-			// Position attribute (only enable if valid)
-			if (Myprogram.vertexPositionAttribute >= 0) {
-				gl.enableVertexAttribArray(Myprogram.vertexPositionAttribute);
-				gl.bindBuffer(gl.ARRAY_BUFFER, my3DObject.OBJ.vertexBuffer);
-				var itemSize = my3DObject.OBJ.vertexBuffer.itemSize || 3;
-				gl.vertexAttribPointer(Myprogram.vertexPositionAttribute, itemSize, gl.FLOAT, false, 0, 0);
-			}
-
-
-			// For Textured objects:
-			// Bind textures and set sampler uniforms (albedo -> unit 0, normal -> unit 1)
-			let samplerLoc = gl.getUniformLocation(Myprogram, "uSampler");
-			let normalSamplerLoc = gl.getUniformLocation(Myprogram, "uNormalSampler");
-			let uniformLightDirLoc = gl.getUniformLocation(Myprogram, "uLightDirection");
-			if (samplerLoc) {
-				gl.activeTexture(gl.TEXTURE0);
-				gl.bindTexture(gl.TEXTURE_2D, Myprogram.texture);
-				gl.uniform1i(samplerLoc, 0);
-				// Object 2 not arriving 
-			}
-			if (normalSamplerLoc) {
-				gl.activeTexture(gl.TEXTURE1);
-				gl.bindTexture(gl.TEXTURE_2D, Myprogram.normalTexture);
-				gl.uniform1i(normalSamplerLoc, 1);
-			}
-			if (uniformLightDirLoc) {
-				gl.uniform3fv(uniformLightDirLoc, mainDirectionLight);
-				console.log("Uploaded light direction: " + mainDirectionLight);
-			}
-
-			if (Myprogram.textureCoordAttribute >= 0 && my3DObject.OBJ.textures.length) {
-				gl.enableVertexAttribArray(Myprogram.textureCoordAttribute);
-				gl.bindBuffer(gl.ARRAY_BUFFER, my3DObject.OBJ.textureBuffer);
-				gl.vertexAttribPointer(Myprogram.textureCoordAttribute, my3DObject.OBJ.textureBuffer.itemSize, gl.FLOAT, false, 0, 0);
-			} else if (Myprogram.textureCoordAttribute >= 0) {
-				gl.disableVertexAttribArray(Myprogram.textureCoordAttribute);
-			}
-
-			// Texture coords if present in shader and mesh
-			if (Myprogram.vertexNormalAttribute >= 0 && my3DObject.OBJ.vertexNormals.length) {
-
-				gl.enableVertexAttribArray(Myprogram.vertexNormalAttribute);
-				gl.bindBuffer(gl.ARRAY_BUFFER, my3DObject.OBJ.normalBuffer);
-				
-				var itemSize = my3DObject.OBJ.normalBuffer.itemSize || 3;
-				gl.vertexAttribPointer(Myprogram.vertexNormalAttribute, itemSize, gl.FLOAT, false, 0, 0);
-			} else if (Myprogram.vertexNormalAttribute >= 0) {
-				gl.disableVertexAttribArray(Myprogram.vertexNormalAttribute);
-			}
-
-			if (Myprogram.vertexTangentAttribute >= 0 && my3DObject.OBJ.tangentBuffer) {
-				gl.enableVertexAttribArray(Myprogram.vertexTangentAttribute);
-				gl.bindBuffer(gl.ARRAY_BUFFER, my3DObject.OBJ.tangentBuffer);
-				gl.vertexAttribPointer(Myprogram.vertexTangentAttribute, 3, gl.FLOAT, false, 0, 0);
-			} else if (Myprogram.vertexTangentAttribute >= 0) {
-				gl.disableVertexAttribArray(Myprogram.vertexTangentAttribute);
-			}
-
-			// Binding the triangle index buffer and drawing
-			gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, my3DObject.OBJ.indexBuffer);
-			gl.drawElements(gl.TRIANGLES, my3DObject.OBJ.indexBuffer.numItems, gl.UNSIGNED_SHORT, 0);	
-		}
 
 		function drawScene()
 		{
-			for (let obj of mySceneObjects) {
-				drawMy3DObject(obj);
-			}
-		}
+			myMeshObj.draw(myCameraObj);
+			myMeshObj2.draw(myTestCameraObj);
 
-		function updateMatrixUniforms(myglProgram) {
-			// make sure the correct program is active when updating its uniforms
-			if (!myglProgram) return;
-			gl.useProgram(myglProgram);
-			if (myglProgram.pMatrixUniform)
-				gl.uniformMatrix4fv(myglProgram.pMatrixUniform, false, pMatrix);
-			if (myglProgram.vMatrixUniform)
-				gl.uniformMatrix4fv(myglProgram.vMatrixUniform, false, vMatrix);
-			// per-object lw matrices are uploaded per-instance in drawScene
-		}
 
-		function initMy3DObject(my3DObject, vs_source, fs_source)
-		{
-			my3DObject.initBuffers();
-			my3DObject.initShaders(vs_source, fs_source);
+			// for (let obj of mySceneObjects) {
+			// 	obj.draw(myCameraObj);
+			// }
 		}
 
 		function readTextFile(file)
