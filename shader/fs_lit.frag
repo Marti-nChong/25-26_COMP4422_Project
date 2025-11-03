@@ -21,4 +21,5 @@ void main(void) {
     vec3 lightDir = normalize(vec3(1.0, 0.0, 0.0));
     float lightIntensity = max(dot(normal, lightDir), 0.0);
     gl_FragColor = vec4(albedoColor.rgb * lightIntensity, albedoColor.a);
+    // gl_FragColor = vec4(vec3(gl_FragCoord.a), 1.0);
 }
