@@ -18,6 +18,8 @@
 			canvas = null;
 
 		let	myCameraObj = new myCamera();
+		let myViewMatrix = myCameraObj.getViewMatrix();
+		
 		let myTestCameraObj = new myCamera();
 
 		let pMatrix = mat4.create();
@@ -32,9 +34,10 @@
 		let skullMeshStr = readTextFile("meshes/stool.obj");
 		let cubeMeshStr = readTextFile("meshes/cube.obj");
 		let dirtyCarStr = readTextFile("meshes/dirty-car/source/dirtyCar.obj");
+		let baseStr = readTextFile("meshes/Base.obj");
 		
 		let myMeshObj = new my3DObject(dirtyCarStr);
-		let myMeshObj2 = new my3DObject(skullMeshStr);
+		let myMeshObj2 = new my3DObject(baseStr);
 		myMeshObj.name = "object1";
 		myMeshObj2.name = "object2";
 
@@ -106,10 +109,10 @@
 						vec4 color = texture2D(uTexture, vTexCoord);
 						float depth = texture2D(uDepthTexture, vTexCoord).r;
 						gl_FragColor = vec4(color.rgb, 1.0);
-						gl_FragColor = vec4(vec3(depth), 1.0);
+						// gl_FragColor = vec4(vec3(depth), 1.0);
 						
-						float vizDepth = 1.0 - pow(depth, 90.0);
-						gl_FragColor = max(vec4(1.0 - vec3(1.0 - color.r, 1.0 - color.g, 1.0 - color.b) * ( 1.0 - vizDepth), 1.0), color);
+						// float vizDepth = 1.0 - pow(depth, 91.0);
+						// gl_FragColor = max(vec4(1.0 - vec3(1.0 - color.r, 1.0 - color.g, 1.0 - color.b) * ( 1.0 - vizDepth), 1.0), color);
 						// gl_FragColor = vec4(vec3(vizDepth), 1.0);
 						// gl_FragColor = color * vec4(vec3(vizDepth), 1.0);
 
@@ -152,8 +155,8 @@
 				myMeshObj2.init(vs_r_source, fs_r_source);
 				myMeshObj.loadTexture("meshes/dirty-car/textures/large_car_d.tga.png");
 				myMeshObj.loadNormalTexture("meshes/dirty-car/textures/large_car_ddna.tga.png");
-				myMeshObj2.loadTexture("meshes/textures/Material_albedo.jpeg");
-				myMeshObj2.loadNormalTexture("meshes/textures/Material_normal.png");
+				myMeshObj2.loadTexture("meshes/textures/Base_albedo.jpeg");
+				myMeshObj2.loadNormalTexture("meshes/textures/Base_normal.png");
 
 				mySceneObjects.push(myMeshObj);
 				mySceneObjects.push(myMeshObj2);
@@ -169,7 +172,7 @@
 				myMeshObj.translate(-4, -1, -1);
 				myMeshObj.scale(scale[0], scale[1], scale[2]);
 				myMeshObj2.translate(4, -1, -5);
-				myMeshObj2.scale(scale[0], scale[1], scale[2]);
+				myMeshObj2.rotate(Math.PI, [0,1,0]);
 				animLoop();
 			}else{
 				alert( "Error: Your browser does not appear to" + "support WebGL.");
@@ -203,12 +206,18 @@
 			const frequency = 0.0;
 			const sinValue = Math.sin(timestamp * frequency);
 
-			updateCamera(myCameraObj);
 			//set view and projection matrix
 			mat4.perspective(45, canvas.width / canvas.height, 0.1, 100.0, pMatrix);
 			mat4.identity(vMatrix);
-			mat4.translate(vMatrix, [0, 0, -10.0]);
-			mat4.translate(vMatrix, [0, sinValue, 0]);
+			let rotAxisX = new Array(1,0,0);
+			let rotAxisY = new Array(0,1,0);
+			let rotAxisZ = new Array(0,0,1);
+			let rotateXAngle = 15 * Math.PI / 180.0;
+			let rotateZAngle = 90 * Math.PI / 180.0;
+			mat4.rotate(vMatrix, rotateXAngle, rotAxisX);
+			mat4.rotate(vMatrix, rotateZAngle, rotAxisY);
+			mat4.translate(vMatrix, [10, -3, 0]);
+			// mat4.rotate(vMatrix, -0.7, rotAxisY);
 
 			let pMat4sec = mat4.create();
 			mat4.perspective(45, canvas.width / canvas.height, 0.1, 100.0, pMat4sec);
