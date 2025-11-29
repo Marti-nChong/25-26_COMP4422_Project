@@ -2,8 +2,31 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Adjust Objects Freely</title>
-    <style> body { margin: 0; overflow: hidden; background: #000; } </style>
+    <title>Water Controls + Z Position</title>
+    <style> 
+        body { margin: 0; overflow: hidden; background: #87CEEB; font-family: sans-serif; } 
+        
+        #ui-container {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            width: 280px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 15px;
+            border-radius: 8px;
+            color: white;
+            z-index: 1000; 
+            border: 1px solid #444;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+
+        h3 { margin-top: 0; border-bottom: 1px solid #555; padding-bottom: 10px; font-size: 16px; color: #00BFFF;}
+        
+        .control-group { margin-bottom: 15px; }
+        label { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 5px; }
+        input[type="range"] { width: 100%; cursor: pointer; }
+        .val-display { color: #aaa; font-size: 12px; }
+    </style>
     
     <script type="importmap">
         {
@@ -15,56 +38,158 @@
     </script>
 </head>
 <body>
+
+    <div id="ui-container">
+        <h3>WATER SETTINGS</h3>
+        
+        <!-- 1. WATER LEVEL Y -->
+        <div class="control-group">
+            <label>Level (Y) <span id="valLevel">-50</span></label>
+            <input type="range" id="sliderLevel" min="-200" max="50" step="1" value="-50">
+        </div>
+
+        <!-- 2. WATER POSITION Z (NEW) -->
+        <div class="control-group">
+            <label>Position (Z) <span id="valPosZ">0</span></label>
+            <input type="range" id="sliderPosZ" min="-2000" max="2000" step="10" value="0">
+        </div>
+
+        <!-- 3. WATER RANGE (SCALE) -->
+        <div class="control-group">
+            <label>Range (Size) <span id="valRange">1.0</span></label>
+            <input type="range" id="sliderRange" min="0.1" max="5.0" step="0.1" value="1.0">
+        </div>
+
+        <!-- 4. WAVE STRENGTH (AMPLITUDE) -->
+        <div class="control-group">
+            <label>Wave Strength <span id="valStrength">1.0</span></label>
+            <input type="range" id="sliderStrength" min="0.0" max="5.0" step="0.1" value="1.0">
+        </div>
+    </div>
+
     <script type="module">
         import * as THREE from 'three';
         import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
+        import { FlyControls } from 'three/addons/controls/FlyControls.js';
+        import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
+        import { Sky } from 'three/addons/objects/Sky.js';
 
         // --- 1. SETUP ---
         const scene = new THREE.Scene();
-        scene.fog = new THREE.Fog(0x000000, 1, 20);
+        scene.fog = new THREE.Fog(0xffffff, 1, 3000); 
 
-        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 10000);
         camera.position.set(0, 0, 0);
 
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 0.5;
         document.body.appendChild(renderer.domElement);
 
-        // --- 2. LIGHTING ---
-        const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 2);
+        // --- 2. ENVIRONMENT (SKY & WATER) ---
+        
+        // A. SKY
+        const sky = new Sky();
+        sky.scale.setScalar(450000);
+        scene.add(sky);
+        
+        const sunPosition = new THREE.Vector3();
+        const skyUniforms = sky.material.uniforms;
+        skyUniforms['turbidity'].value = 10;
+        skyUniforms['rayleigh'].value = 3;
+        skyUniforms['mieCoefficient'].value = 0.005;
+        skyUniforms['mieDirectionalG'].value = 0.7;
+
+        // B. WATER (Procedural)
+        const waterGeometry = new THREE.PlaneGeometry(10000, 10000, 128, 128);
+        
+        const waterMaterial = new THREE.MeshStandardMaterial({
+            color: 0x006994,
+            roughness: 0.1,
+            metalness: 0.1,
+            side: THREE.DoubleSide
+        });
+
+        // Uniforms to control shader dynamically
+        const waterUniforms = {
+            uTime: { value: 0 },
+            uStrength: { value: 1.0 } 
+        };
+
+        waterMaterial.onBeforeCompile = (shader) => {
+            shader.uniforms.uTime = waterUniforms.uTime;
+            shader.uniforms.uStrength = waterUniforms.uStrength;
+            
+            shader.vertexShader = `
+                uniform float uTime;
+                uniform float uStrength;
+                
+                float calculateSurface(float x, float z) {
+                    float y = 0.0;
+                    y += (sin(x * 0.01 + uTime * 1.0) + sin(z * 0.01 + uTime * 0.5)) * 5.0;
+                    y += (sin(x * 0.03 + uTime * 0.8) + sin(z * 0.03 + uTime * 1.2)) * 2.0;
+                    return y * uStrength;
+                }
+            ` + shader.vertexShader;
+
+            shader.vertexShader = shader.vertexShader.replace(
+                '#include <begin_vertex>',
+                `
+                #include <begin_vertex>
+                float rippleHeight = calculateSurface(position.x, position.y); 
+                transformed.z += rippleHeight; 
+                `
+            );
+        };
+
+        const waterMesh = new THREE.Mesh(waterGeometry, waterMaterial);
+        waterMesh.rotation.x = -Math.PI / 2; 
+        waterMesh.position.y = -50; 
+        waterMesh.receiveShadow = true;
+        scene.add(waterMesh);
+
+        // --- 3. LIGHTING ---
+        const hemiLight = new THREE.HemisphereLight(0xffffff, 0xffffff, 0.6);
         scene.add(hemiLight);
         
-        const dirLight = new THREE.DirectionalLight(0xffffff, 2);
-        dirLight.position.set(5, 10, 7);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 3);
+        dirLight.castShadow = true; 
+        dirLight.shadow.camera.top = 200;
+        dirLight.shadow.camera.bottom = -200;
+        dirLight.shadow.camera.left = -200;
+        dirLight.shadow.camera.right = 200;
+        dirLight.shadow.camera.near = 1;
+        dirLight.shadow.camera.far = 1000;
+        dirLight.shadow.mapSize.width = 2048; 
+        dirLight.shadow.mapSize.height = 2048;
         scene.add(dirLight);
 
-        // --- 3. AXIS HELPER ---
-        const axesHelper = new THREE.AxesHelper(5);
-        axesHelper.position.set(0, 0, -2);
-        scene.add(axesHelper);
-
-        // --- 4. ASSET LOADER (UPDATED FOR ASSIGNMENT) ---
+        // --- 4. ASSET LOADING (Hardcoded Previous Settings) ---
+        const mixers = []; 
         const fbxLoader = new FBXLoader();
         const texLoader = new THREE.TextureLoader();
 
-        /**
-         * Returns a THREE.Group immediately. The model loads into it later.
-         */
-        function loadAsset(folderPath, x, y, z, scale = 0.01) {
-            
-            // 1. Create a "Wrapper" Group immediately
-            const wrapper = new THREE.Group();
-            
-            // 2. Set the position of the wrapper immediately
-            wrapper.position.set(x, y, z);
-            
-            // 3. Add wrapper to scene
-            scene.add(wrapper);
+        function createDebugSphere(scale) {
+            const sphereRadius = 0.5 / scale; 
+            const sphere = new THREE.Mesh(
+                new THREE.SphereGeometry(sphereRadius, 8, 8),
+                new THREE.MeshBasicMaterial({ color: 0xff0000, depthTest: false, depthWrite: false })
+            );
+            sphere.renderOrder = 999;
+            return sphere;
+        }
 
-            // 4. Start loading the Heavy Assets (Async)
+        function loadAsset(folderPath, x, y, z, scale = 0.01, animSpeed = 1.0, rotationOffset = 0) {
+            const wrapper = new THREE.Group();
+            wrapper.position.set(x, y, z);
+            wrapper.scale.set(scale, scale, scale); 
+            scene.add(wrapper);
+            wrapper.add(createDebugSphere(scale));
+
             const path = folderPath.endsWith('/') ? folderPath : folderPath + '/';
-            
             const albedoMap = texLoader.load(path + 'albedo.png');
             const normalMap = texLoader.load(path + 'normal.png');
             albedoMap.colorSpace = THREE.SRGBColorSpace;
@@ -76,91 +201,185 @@
                             map: albedoMap,
                             normalMap: normalMap,
                             roughness: 0.5,
-                            metalness: 0.1
+                            metalness: 0.1,
+                            skinning: true 
                         });
                         child.castShadow = true;
                         child.receiveShadow = true;
+                        child.frustumCulled = false; 
                     }
                 });
-
-                // Apply the scale correction to the INNER model
-                model.scale.set(scale, scale, scale);
-                
-                // Add the loaded model INTO the wrapper
+                if (model.animations && model.animations.length > 0) {
+                    const mixer = new THREE.AnimationMixer(model);
+                    mixer.clipAction(model.animations[0]).play();
+                    mixer.timeScale = animSpeed;
+                    mixers.push(mixer);
+                }
+                model.rotation.y = rotationOffset;
                 wrapper.add(model);
-                
-                console.log(`Loaded Asset: ${path}`);
             }, undefined, (err) => console.error(err));
-
-            // 5. Return the wrapper so you can save it to a variable
             return wrapper;
         }
 
-        // ===============================================
-        // LOAD ASSETS & ASSIGN TO VARIABLES
-        // ===============================================
-        
-        // 1. Original Object at y = -2
+        function spawnCluster(parentObject, folderPath, count, orbitRadius, scale, yOffset) {
+            const rotatorGroup = new THREE.Group();
+            rotatorGroup.position.y = yOffset;
+            parentObject.add(rotatorGroup);
+
+            const path = folderPath.endsWith('/') ? folderPath : folderPath + '/';
+            const albedoMap = texLoader.load(path + 'albedo.png');
+            const normalMap = texLoader.load(path + 'normal.png');
+            albedoMap.colorSpace = THREE.SRGBColorSpace;
+
+            fbxLoader.load(path + 'object.fbx', (baseModel) => {
+                for (let i = 0; i < count; i++) {
+                    const clone = SkeletonUtils.clone(baseModel);
+                    const theta = Math.random() * Math.PI * 2; 
+                    const phi = Math.acos((Math.random() * 2) - 1); 
+                    const r = 5 + (Math.random() * orbitRadius); 
+                    clone.position.set(r * Math.sin(phi) * Math.cos(theta), r * Math.sin(phi) * Math.sin(theta), r * Math.cos(phi));
+                    clone.rotation.set(Math.random()*Math.PI, Math.random()*Math.PI, Math.random()*Math.PI);
+                    clone.scale.set(scale, scale, scale);
+                    clone.add(createDebugSphere(scale));
+
+                    clone.traverse((child) => {
+                        if (child.isMesh) {
+                            child.material = new THREE.MeshStandardMaterial({
+                                map: albedoMap,
+                                normalMap: normalMap,
+                                skinning: true
+                            });
+                            child.castShadow = true;
+                            child.receiveShadow = true;
+                            child.frustumCulled = false; 
+                        }
+                    });
+
+                    if (baseModel.animations.length > 0) {
+                        const mixer = new THREE.AnimationMixer(clone);
+                        const action = mixer.clipAction(baseModel.animations[0]);
+                        mixer.timeScale = 0.5 + Math.random(); 
+                        action.play();
+                        mixers.push(mixer);
+                    }
+                    rotatorGroup.add(clone);
+                }
+            });
+            return rotatorGroup;
+        }
+
+        // --- ASSETS ---
         let obj1 = loadAsset('meshes/obj0', 0, -2, 3, 0.01); 
+        let obj2 = loadAsset('meshes/obj1', 0, -0.25, -7, 0.02);
+        obj2.rotation.y = Math.PI/2;
+        let obj3 = loadAsset('meshes/obj2', -2, -1, -7.5, 0.015);
+        obj3.rotation.y = Math.PI/2;
+        let obj4 = loadAsset('meshes/obj3', 2, -1.5, -5, 0.02);
 
-        // 2. New Object at y = -2, z = -10, Scale 0.25
-        let obj2 = loadAsset('meshes/obj1', 0, -0.35, -7, 0.015);
 
-		obj2.rotation.y = Math.PI/2; // Rotate 180 degrees immediately
+        let animatedObj = loadAsset('meshes/aobj0', 0, 0, 0, 0.018, 0.5, Math.PI);
+        let clusterRotator = spawnCluster(animatedObj, 'meshes/aobj1', 30, 446, 0.029, 70);
 
-        // EXAMPLE: You can now adjust them here or in the loop!
-        // obj2.rotation.y = Math.PI / 2; // Rotate 90 degrees immediately
-        
+        const whaleStart = new THREE.Vector3(35, -6, -20); 
+        const whaleEnd = new THREE.Vector3(-60, 10, -20); 
+        const whaleDuration = 60; 
+
+        // ===============================================
+        // UI LOGIC (WATER ONLY)
         // ===============================================
 
-        // --- 5. MOUSE CONTROLS ---
-        const MAX_DEGREE = 5; 
-        const SMOOTHING = 0.05;
-        const maxRad = MAX_DEGREE * (Math.PI / 180);
+        // 1. Water Level Y
+        document.getElementById('sliderLevel').addEventListener('input', (e) => {
+            const val = parseFloat(e.target.value);
+            document.getElementById('valLevel').innerText = val;
+            waterMesh.position.y = val;
+        });
+
+        // 2. Water Position Z (NEW)
+        document.getElementById('sliderPosZ').addEventListener('input', (e) => {
+            const val = parseFloat(e.target.value);
+            document.getElementById('valPosZ').innerText = val;
+            waterMesh.position.z = val;
+        });
+
+        // 3. Water Range (Scale)
+        document.getElementById('sliderRange').addEventListener('input', (e) => {
+            const val = parseFloat(e.target.value);
+            document.getElementById('valRange').innerText = val;
+            waterMesh.scale.set(val, val, 1); 
+        });
+
+        // 4. Wave Strength
+        document.getElementById('sliderStrength').addEventListener('input', (e) => {
+            const val = parseFloat(e.target.value);
+            document.getElementById('valStrength').innerText = val;
+            waterUniforms.uStrength.value = val;
+        });
+
+        // ===============================================
+        // LOOP
+        // ===============================================
+
+        const flyControls = new FlyControls(camera, renderer.domElement);
+        flyControls.movementSpeed = 5;
+        flyControls.rollSpeed = Math.PI / 6;
+        flyControls.autoForward = false;
+        flyControls.dragToLook = false;
+
         const mouse = { x: 0, y: 0 };
+        const maxRad = 5 * (Math.PI / 180);
 
         window.addEventListener('mousemove', (event) => {
             mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
             mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
         });
 
-        // --- 6. SKY CYCLE ---
-        const clock = new THREE.Clock();
-        const skyColors = [
-            new THREE.Color(0x87CEEB), 
-            new THREE.Color(0xFFA500), 
-            new THREE.Color(0x050510), 
-            new THREE.Color(0x8a76ab)
-        ];
+        let isFreeFly = false;
+        window.addEventListener('keydown', (event) => {
+            if (event.code === 'Tab') {
+                event.preventDefault();
+                isFreeFly = !isFreeFly;
+                if (!isFreeFly) {
+                    camera.position.set(0, 0, 0);
+                    camera.rotation.set(0, 0, 0);
+                }
+            }
+        });
 
-        function updateSky() {
-            const time = clock.getElapsedTime();
-            const duration = 10; 
-            const progress = (time % duration) / duration;
-            const segmentCount = skyColors.length;
-            const segmentIndex = Math.floor(progress * segmentCount);
-            const nextIndex = (segmentIndex + 1) % segmentCount;
-            const subProgress = (progress * segmentCount) % 1;
-            const colorCurrent = skyColors[segmentIndex];
-            const colorNext = skyColors[nextIndex];
-            const finalColor = colorCurrent.clone().lerp(colorNext, subProgress);
-            scene.background = finalColor;
-            scene.fog.color = finalColor;
-        }
+        const clock = new THREE.Clock(); 
 
-        // --- 7. ANIMATION LOOP ---
         function animate() {
             requestAnimationFrame(animate);
+            const delta = clock.getDelta(); 
+            const elapsedTime = clock.getElapsedTime();
 
-            updateSky();
+            // UPDATE WATER UNIFORMS
+            waterUniforms.uTime.value = elapsedTime;
 
-            // EXAMPLE: You can even animate obj2 here easily now!
-            // obj2.rotation.y += 0.01;
+            // SUN ORBIT
+            const sunTheta = elapsedTime * 0.1; 
+            const sunPhi = THREE.MathUtils.degToRad(60); 
+            sunPosition.setFromSphericalCoords(100, sunPhi, sunTheta);
+            sky.material.uniforms['sunPosition'].value.copy(sunPosition);
+            dirLight.position.copy(sunPosition);
 
-            const targetRotationX = mouse.y * maxRad; 
-            const targetRotationY = -mouse.x * maxRad; 
-            camera.rotation.x += (targetRotationX - camera.rotation.x) * SMOOTHING;
-            camera.rotation.y += (targetRotationY - camera.rotation.y) * SMOOTHING;
+            for (const mixer of mixers) mixer.update(delta);
+
+            const whaleProgress = (elapsedTime % whaleDuration) / whaleDuration;
+            animatedObj.position.lerpVectors(whaleStart, whaleEnd, whaleProgress);
+            animatedObj.lookAt(whaleEnd); 
+
+            if(clusterRotator) {
+                clusterRotator.rotation.y += 0.5 * delta; 
+                clusterRotator.rotation.z += 0.2 * delta; 
+            }
+
+            if (isFreeFly) {
+                flyControls.update(delta);
+            } else {
+                camera.rotation.x += ((mouse.y * maxRad) - camera.rotation.x) * 0.05;
+                camera.rotation.y += ((-mouse.x * maxRad) - camera.rotation.y) * 0.05;
+            }
 
             renderer.render(scene, camera);
         }
