@@ -1,322 +1,176 @@
-<!doctype html>
-<html>
+<!DOCTYPE html>
+<html lang="en">
 <head>
-<title>Mesh Drawing</title>
-	<style>
-		body{ background-color: grey; }
-		canvas{ background-color: white; }
-	</style>
-
-	<script src="libs/gl-matrix-min.js"></script>
-	<script src="libs/webgl-obj-loader.js"></script>
-	<script src="libs/my3DObject.js"></script>
-	<script src="libs/noisejs-master/perlin.js"></script>
-	<script src="libs/webgl-utils.js"></script>
-	
-	<script>
-		let gl = null,
-			canvas = null;
-
-		let	myCameraObj = new myCamera();
-		let myViewMatrix = myCameraObj.getViewMatrix();
-		
-		let myTestCameraObj = new myCamera();
-
-		let pMatrix = mat4.create();
-		let vMatrix = mat4.create();
-
-		let rotateValue = 0.0;
-		let mySceneObjects = [];
-
-		let FBO, fboTexture, depthTexture, quadProgram, quadBuffer;
-
-		// Read the mesh file as text
-		let skullMeshStr = readTextFile("meshes/stool.obj");
-		let cubeMeshStr = readTextFile("meshes/cube.obj");
-		let dirtyCarStr = readTextFile("meshes/dirty-car/source/dirtyCar.obj");
-		let baseStr = readTextFile("meshes/Base.obj");
-		
-		let myMeshObj = new my3DObject(dirtyCarStr);
-		let myMeshObj2 = new my3DObject(baseStr);
-		myMeshObj.name = "object1";
-		myMeshObj2.name = "object2";
-
-
-		
-		let mainDirectionLight = vec3.create();
-		vec3.set([0.0, -1.0, 0.0], mainDirectionLight);
-
-		console.log("Main light direction: " + mainDirectionLight);
-
-		function initWebGL()
-		{
-			canvas = document.getElementById("my-canvas");
-			gl = canvas.getContext("webgl2") || canvas.getContext("experimental-webgl");
-
-			canvas.onmousedown = function(e) {
-				console.log("Mouse down at: " + e.clientX + ", " + e.clientY);
-			};
-
-			if(gl)
-			{
-				// enable depth testing for correct 3D rendering
-				gl.enable(gl.DEPTH_TEST);
-				gl.clearDepth(1.0);
-
-				const ext = gl.getExtension('WEBGL_depth_texture');
-
-				// Create FBO texture
-				fboTexture = gl.createTexture();
-				gl.bindTexture(gl.TEXTURE_2D, fboTexture);
-				gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, canvas.width, canvas.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
-				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-
-				// Create depth texture
-				depthTexture = gl.createTexture();
-				gl.bindTexture(gl.TEXTURE_2D, depthTexture);
-				gl.texImage2D(gl.TEXTURE_2D, 0, gl.DEPTH_COMPONENT24, canvas.width, canvas.height, 0, gl.DEPTH_COMPONENT, gl.UNSIGNED_INT, null);
-				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-
-				// Create FBO
-				FBO = gl.createFramebuffer();
-				gl.bindFramebuffer(gl.FRAMEBUFFER, FBO);
-				gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, fboTexture, 0);
-				gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.TEXTURE_2D, depthTexture, 0);
-				gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-				
-				// Create quad program
-				let quadVS = `
-					attribute vec2 aPosition;
-					attribute vec2 aTexCoord;
-					varying vec2 vTexCoord;
-					void main() {
-						gl_Position = vec4(aPosition, 0.0, 1.0);
-						vTexCoord = aTexCoord;
-					}
-				`;
-				let quadFS = `
-					precision mediump float;
-					uniform sampler2D uTexture;
-					uniform sampler2D uDepthTexture;
-					varying vec2 vTexCoord;
-					void main() {
-						vec4 color = texture2D(uTexture, vTexCoord);
-						float depth = texture2D(uDepthTexture, vTexCoord).r;
-						gl_FragColor = vec4(color.rgb, 1.0);
-						// gl_FragColor = vec4(vec3(depth), 1.0);
-						
-						// float vizDepth = 1.0 - pow(depth, 91.0);
-						// gl_FragColor = max(vec4(1.0 - vec3(1.0 - color.r, 1.0 - color.g, 1.0 - color.b) * ( 1.0 - vizDepth), 1.0), color);
-						// gl_FragColor = vec4(vec3(vizDepth), 1.0);
-						// gl_FragColor = color * vec4(vec3(vizDepth), 1.0);
-
-					}
-				`;
-				let vertexShader = makeShader(quadVS, gl.VERTEX_SHADER);
-				let fragmentShader = makeShader(quadFS, gl.FRAGMENT_SHADER);
-				quadProgram = gl.createProgram();
-				gl.attachShader(quadProgram, vertexShader);
-				gl.attachShader(quadProgram, fragmentShader);
-				gl.linkProgram(quadProgram);
-				if (!gl.getProgramParameter(quadProgram, gl.LINK_STATUS)) {
-					alert("Unable to initialize quad shader program.");
-				}
-				quadProgram.positionAttribute = gl.getAttribLocation(quadProgram, "aPosition");
-				quadProgram.texCoordAttribute = gl.getAttribLocation(quadProgram, "aTexCoord");
-				quadProgram.textureUniform = gl.getUniformLocation(quadProgram, "uTexture");
-				quadProgram.depthTextureUniform = gl.getUniformLocation(quadProgram, "uDepthTexture");
-				console.log(quadProgram)
-				console.log(quadProgram.positionAttribute)
-				console.log(quadProgram.texCoordAttribute)
-				console.log(quadProgram.textureUniform)
-				console.log(quadProgram.depthTextureUniform)
-
-				// Quad vertices: position x,y, tex u,v
-				let quadVertices = new Float32Array([
-					-1, -1, 0, 0,
-					 1, -1, 1, 0,
-					-1,  1, 0, 1,
-					 1,  1, 1, 1
-				]);
-				quadBuffer = gl.createBuffer();
-				gl.bindBuffer(gl.ARRAY_BUFFER, quadBuffer);
-				gl.bufferData(gl.ARRAY_BUFFER, quadVertices, gl.STATIC_DRAW);
-
-				let vs_r_source = readTextFile("shader/vs_lit.vert");
-				let fs_r_source = readTextFile("shader/fs_lit.frag");
-
-				myMeshObj.init(vs_r_source, fs_r_source);
-				myMeshObj2.init(vs_r_source, fs_r_source);
-				myMeshObj.loadTexture("meshes/dirty-car/textures/large_car_d.tga.png");
-				myMeshObj.loadNormalTexture("meshes/dirty-car/textures/large_car_ddna.tga.png");
-				myMeshObj2.loadTexture("meshes/textures/Base_albedo.jpeg");
-				myMeshObj2.loadNormalTexture("meshes/textures/Base_normal.png");
-
-				mySceneObjects.push(myMeshObj);
-				mySceneObjects.push(myMeshObj2);
-
-				myMeshObj.toOrigin();
-				myMeshObj2.toOrigin();
-				
-				scale = vec3.create();
-				vec3.set([1.0, 1.0, 1.0], scale);
-				vec3.scale(scale, 2.0, scale);
-				console.log("Scale vector: " + scale);
-
-				myMeshObj.translate(-4, -1, -1);
-				myMeshObj.scale(scale[0], scale[1], scale[2]);
-				myMeshObj2.translate(4, -1, -5);
-				myMeshObj2.rotate(Math.PI, [0,1,0]);
-				animLoop();
-			}else{
-				alert( "Error: Your browser does not appear to" + "support WebGL.");
-			}
-		}
-
-		function animLoop()
-		{
-			updateWebGL();
-			updateBuffers();
-			drawScene();
-			requestAnimationFrame(animLoop, canvas);
-		}
-
-		function updateCamera(camera, vMatrix, pMatrix){
-			camera.setViewMatrix(vMatrix);
-			camera.setProjectionMatrix(pMatrix);
-		}
-
-		function updateWebGL()
-		{
-			//set the clear color to a shade of green
-			gl.clearColor(0.4, 0.4, 0.4, 1.0);
-			// clear color and depth buffers
-			gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-
-			//set viewport
-			gl.viewport(0, 0, canvas.width, canvas.height);
-
-			let timestamp = performance.now() / 1000;
-			const frequency = 0.0;
-			const sinValue = Math.sin(timestamp * frequency);
-
-			//set view and projection matrix
-			mat4.perspective(45, canvas.width / canvas.height, 0.1, 100.0, pMatrix);
-			mat4.identity(vMatrix);
-			let rotAxisX = new Array(1,0,0);
-			let rotAxisY = new Array(0,1,0);
-			let rotAxisZ = new Array(0,0,1);
-			let rotateXAngle = 15 * Math.PI / 180.0;
-			let rotateZAngle = 90 * Math.PI / 180.0;
-			mat4.rotate(vMatrix, rotateXAngle, rotAxisX);
-			mat4.rotate(vMatrix, rotateZAngle, rotAxisY);
-			mat4.translate(vMatrix, [10, -3, 0]);
-			// mat4.rotate(vMatrix, -0.7, rotAxisY);
-
-			let pMat4sec = mat4.create();
-			mat4.perspective(45, canvas.width / canvas.height, 0.1, 100.0, pMat4sec);
-			let vMat4sec = mat4.create();
-			mat4.identity(vMat4sec);
-			mat4.translate(vMat4sec, [0, 0, -20.0]);
-			
-			
-			updateCamera(myCameraObj, vMatrix, pMatrix);
-			updateCamera(myTestCameraObj, vMatrix, pMatrix);
-			updateCamera(myTestCameraObj, vMat4sec, pMat4sec);
-
-			let rotAxis = new Array(0,1,0);
-			let rotateAngleMax = 45.0 * Math.PI / 180.0; // 45 degrees in radians
-			let rotateAngle = rotateAngleMax * Math.sin(timestamp);
-			// mat4.rotate(vMatrix, rotateAngle, rotAxis);
-
-			myMeshObj.rotate(rotateValue, rotAxis);
-			myMeshObj2.rotate(-rotateValue, rotAxis);
-
-		}
-
-
-		function updateBuffers()
-		{
-			// no dynamic buffers to update in this example
-		}
-
-
-		function drawScene()
-		{
-
-			// Render to FBO
-			gl.bindFramebuffer(gl.FRAMEBUFFER, FBO);
-			gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-			myMeshObj.draw(myCameraObj);
-			myMeshObj2.draw(myCameraObj);
-
-			// Render to screen
-			gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-			gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-
-			// Draw quad with FBO texture
-			gl.useProgram(quadProgram);
-			gl.bindBuffer(gl.ARRAY_BUFFER, quadBuffer);
-			gl.enableVertexAttribArray(quadProgram.positionAttribute);
-			gl.vertexAttribPointer(quadProgram.positionAttribute, 2, gl.FLOAT, false, 16, 0);
-			gl.enableVertexAttribArray(quadProgram.texCoordAttribute);
-			gl.vertexAttribPointer(quadProgram.texCoordAttribute, 2, gl.FLOAT, false, 16, 8);
-			gl.activeTexture(gl.TEXTURE0);
-			gl.bindTexture(gl.TEXTURE_2D, fboTexture);
-			gl.uniform1i(quadProgram.textureUniform, 0);
-
-			gl.activeTexture(gl.TEXTURE1);
-			gl.bindTexture(gl.TEXTURE_2D, depthTexture);
-			gl.uniform1i(quadProgram.depthTextureUniform, 1);
-			
-			gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-		}
-
-		function readTextFile(file)
-		{
-		    let rawFile = new XMLHttpRequest();
-		    let strText;
-		    rawFile.open("GET", file, false);
-		    rawFile.onreadystatechange = function ()
-		    {
-		        if(rawFile.readyState === 4)
-		        {
-		            if(rawFile.status === 200 || rawFile.status == 0)
-		            {
-		                strText = rawFile.responseText;
-		            }
-		        }
-		    }
-		    rawFile.send(null);
-		    return strText;
-		}
-
-		function makeShader(src, type)
-		{
-			//compile the vertex shader
-			let shader = gl.createShader(type);
-			gl.shaderSource(shader, src);
-			gl.compileShader(shader);
-			if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-				alert("Error compiling shader: " + gl.getShaderInfoLog(shader));
-			}
-			return shader;
-		}
-
-	</script>
-
+    <meta charset="UTF-8">
+    <title>Adjust Objects Freely</title>
+    <style> body { margin: 0; overflow: hidden; background: #000; } </style>
+    
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
 </head>
+<body>
+    <script type="module">
+        import * as THREE from 'three';
+        import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
 
-<body onload="initWebGL()">
-	<canvas id="my-canvas" width="1000" height="800">
-		Your browser does not support the HTML5 canvas element.
-	</canvas>
+        // --- 1. SETUP ---
+        const scene = new THREE.Scene();
+        scene.fog = new THREE.Fog(0x000000, 1, 20);
+
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(0, 0, 0);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        document.body.appendChild(renderer.domElement);
+
+        // --- 2. LIGHTING ---
+        const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 2);
+        scene.add(hemiLight);
+        
+        const dirLight = new THREE.DirectionalLight(0xffffff, 2);
+        dirLight.position.set(5, 10, 7);
+        scene.add(dirLight);
+
+        // --- 3. AXIS HELPER ---
+        const axesHelper = new THREE.AxesHelper(5);
+        axesHelper.position.set(0, 0, -2);
+        scene.add(axesHelper);
+
+        // --- 4. ASSET LOADER (UPDATED FOR ASSIGNMENT) ---
+        const fbxLoader = new FBXLoader();
+        const texLoader = new THREE.TextureLoader();
+
+        /**
+         * Returns a THREE.Group immediately. The model loads into it later.
+         */
+        function loadAsset(folderPath, x, y, z, scale = 0.01) {
+            
+            // 1. Create a "Wrapper" Group immediately
+            const wrapper = new THREE.Group();
+            
+            // 2. Set the position of the wrapper immediately
+            wrapper.position.set(x, y, z);
+            
+            // 3. Add wrapper to scene
+            scene.add(wrapper);
+
+            // 4. Start loading the Heavy Assets (Async)
+            const path = folderPath.endsWith('/') ? folderPath : folderPath + '/';
+            
+            const albedoMap = texLoader.load(path + 'albedo.png');
+            const normalMap = texLoader.load(path + 'normal.png');
+            albedoMap.colorSpace = THREE.SRGBColorSpace;
+
+            fbxLoader.load(path + 'object.fbx', (model) => {
+                model.traverse((child) => {
+                    if (child.isMesh) {
+                        child.material = new THREE.MeshStandardMaterial({
+                            map: albedoMap,
+                            normalMap: normalMap,
+                            roughness: 0.5,
+                            metalness: 0.1
+                        });
+                        child.castShadow = true;
+                        child.receiveShadow = true;
+                    }
+                });
+
+                // Apply the scale correction to the INNER model
+                model.scale.set(scale, scale, scale);
+                
+                // Add the loaded model INTO the wrapper
+                wrapper.add(model);
+                
+                console.log(`Loaded Asset: ${path}`);
+            }, undefined, (err) => console.error(err));
+
+            // 5. Return the wrapper so you can save it to a variable
+            return wrapper;
+        }
+
+        // ===============================================
+        // LOAD ASSETS & ASSIGN TO VARIABLES
+        // ===============================================
+        
+        // 1. Original Object at y = -2
+        let obj1 = loadAsset('meshes/obj0', 0, -2, 3, 0.01); 
+
+        // 2. New Object at y = -2, z = -10, Scale 0.25
+        let obj2 = loadAsset('meshes/obj1', 0, -0.35, -7, 0.015);
+
+		obj2.rotation.y = Math.PI/2; // Rotate 180 degrees immediately
+
+        // EXAMPLE: You can now adjust them here or in the loop!
+        // obj2.rotation.y = Math.PI / 2; // Rotate 90 degrees immediately
+        
+        // ===============================================
+
+        // --- 5. MOUSE CONTROLS ---
+        const MAX_DEGREE = 5; 
+        const SMOOTHING = 0.05;
+        const maxRad = MAX_DEGREE * (Math.PI / 180);
+        const mouse = { x: 0, y: 0 };
+
+        window.addEventListener('mousemove', (event) => {
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+        });
+
+        // --- 6. SKY CYCLE ---
+        const clock = new THREE.Clock();
+        const skyColors = [
+            new THREE.Color(0x87CEEB), 
+            new THREE.Color(0xFFA500), 
+            new THREE.Color(0x050510), 
+            new THREE.Color(0x8a76ab)
+        ];
+
+        function updateSky() {
+            const time = clock.getElapsedTime();
+            const duration = 10; 
+            const progress = (time % duration) / duration;
+            const segmentCount = skyColors.length;
+            const segmentIndex = Math.floor(progress * segmentCount);
+            const nextIndex = (segmentIndex + 1) % segmentCount;
+            const subProgress = (progress * segmentCount) % 1;
+            const colorCurrent = skyColors[segmentIndex];
+            const colorNext = skyColors[nextIndex];
+            const finalColor = colorCurrent.clone().lerp(colorNext, subProgress);
+            scene.background = finalColor;
+            scene.fog.color = finalColor;
+        }
+
+        // --- 7. ANIMATION LOOP ---
+        function animate() {
+            requestAnimationFrame(animate);
+
+            updateSky();
+
+            // EXAMPLE: You can even animate obj2 here easily now!
+            // obj2.rotation.y += 0.01;
+
+            const targetRotationX = mouse.y * maxRad; 
+            const targetRotationY = -mouse.x * maxRad; 
+            camera.rotation.x += (targetRotationX - camera.rotation.x) * SMOOTHING;
+            camera.rotation.y += (targetRotationY - camera.rotation.y) * SMOOTHING;
+
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
 </body>
-
 </html>
