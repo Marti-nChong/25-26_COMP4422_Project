@@ -44,6 +44,14 @@
         // A. SKY
         const sky = new Sky();
         sky.scale.setScalar(450000);
+
+        // Enlarge the sun
+        const sunSize = 0.998; 
+        sky.material.fragmentShader = sky.material.fragmentShader.replace(
+            'const float sunAngularDiameterCos = 0.999956676946448443553574619906976478926848692873900859324;',
+            `const float sunAngularDiameterCos = ${sunSize};`
+        );
+
         scene.add(sky);
         
         const sunPosition = new THREE.Vector3();
@@ -115,6 +123,7 @@
         dirLight.shadow.mapSize.width = 2048; 
         dirLight.shadow.mapSize.height = 2048;
         scene.add(dirLight);
+        dirLight.shadow.bias = -0.0005; // <--- ADD THIS
 
         // --- 4. ASSET LOADERS ---
         const mixers = []; 
@@ -263,7 +272,7 @@
             waterUniforms.uTime.value = elapsedTime;
 
             // SUN ORBIT
-            const sunTheta = elapsedTime * 0.1; 
+            const sunTheta = 100 * 0.1; 
             const sunPhi = THREE.MathUtils.degToRad(60); 
             sunPosition.setFromSphericalCoords(100, sunPhi, sunTheta);
             sky.material.uniforms['sunPosition'].value.copy(sunPosition);
