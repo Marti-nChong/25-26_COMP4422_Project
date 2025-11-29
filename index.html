@@ -26,7 +26,7 @@
 
         // --- 1. SETUP ---
         const scene = new THREE.Scene();
-        scene.fog = new THREE.Fog(0xffffff, 1, 3000); 
+        scene.fog = new THREE.Fog(0xffffff, 1, 29); 
 
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 10000);
         camera.position.set(0, 0, 0);
@@ -98,6 +98,21 @@
                 #include <begin_vertex>
                 float rippleHeight = calculateSurface(position.x, position.y); 
                 transformed.z += rippleHeight; 
+                `
+            );
+
+            // Custom fog for water (distance 3000)
+            shader.fragmentShader = shader.fragmentShader.replace(
+                '#include <fog_fragment>',
+                `
+                #ifdef USE_FOG
+                  #ifdef FOG_EXP2
+                    float fogFactor = 1.0 - exp( - fogDensity * fogDensity * vFogDepth * vFogDepth );
+                  #else
+                    float fogFactor = smoothstep( fogNear, 3000.0, vFogDepth );
+                  #endif
+                  gl_FragColor.rgb = mix( gl_FragColor.rgb, fogColor, fogFactor );
+                #endif
                 `
             );
         };
