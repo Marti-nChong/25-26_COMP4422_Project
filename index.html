@@ -2,30 +2,9 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Water Controls + Z Position</title>
+    <title>Final Whale Scene (Clean)</title>
     <style> 
-        body { margin: 0; overflow: hidden; background: #87CEEB; font-family: sans-serif; } 
-        
-        #ui-container {
-            position: absolute;
-            top: 20px;
-            right: 20px;
-            width: 280px;
-            background: rgba(0, 0, 0, 0.8);
-            padding: 15px;
-            border-radius: 8px;
-            color: white;
-            z-index: 1000; 
-            border: 1px solid #444;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-        }
-
-        h3 { margin-top: 0; border-bottom: 1px solid #555; padding-bottom: 10px; font-size: 16px; color: #00BFFF;}
-        
-        .control-group { margin-bottom: 15px; }
-        label { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 5px; }
-        input[type="range"] { width: 100%; cursor: pointer; }
-        .val-display { color: #aaa; font-size: 12px; }
+        body { margin: 0; overflow: hidden; background: #87CEEB; } 
     </style>
     
     <script type="importmap">
@@ -38,35 +17,6 @@
     </script>
 </head>
 <body>
-
-    <div id="ui-container">
-        <h3>WATER SETTINGS</h3>
-        
-        <!-- 1. WATER LEVEL Y -->
-        <div class="control-group">
-            <label>Level (Y) <span id="valLevel">-50</span></label>
-            <input type="range" id="sliderLevel" min="-200" max="50" step="1" value="-50">
-        </div>
-
-        <!-- 2. WATER POSITION Z (NEW) -->
-        <div class="control-group">
-            <label>Position (Z) <span id="valPosZ">0</span></label>
-            <input type="range" id="sliderPosZ" min="-2000" max="2000" step="10" value="0">
-        </div>
-
-        <!-- 3. WATER RANGE (SCALE) -->
-        <div class="control-group">
-            <label>Range (Size) <span id="valRange">1.0</span></label>
-            <input type="range" id="sliderRange" min="0.1" max="5.0" step="0.1" value="1.0">
-        </div>
-
-        <!-- 4. WAVE STRENGTH (AMPLITUDE) -->
-        <div class="control-group">
-            <label>Wave Strength <span id="valStrength">1.0</span></label>
-            <input type="range" id="sliderStrength" min="0.0" max="5.0" step="0.1" value="1.0">
-        </div>
-    </div>
-
     <script type="module">
         import * as THREE from 'three';
         import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
@@ -113,7 +63,6 @@
             side: THREE.DoubleSide
         });
 
-        // Uniforms to control shader dynamically
         const waterUniforms = {
             uTime: { value: 0 },
             uStrength: { value: 1.0 } 
@@ -167,27 +116,16 @@
         dirLight.shadow.mapSize.height = 2048;
         scene.add(dirLight);
 
-        // --- 4. ASSET LOADING (Hardcoded Previous Settings) ---
+        // --- 4. ASSET LOADERS ---
         const mixers = []; 
         const fbxLoader = new FBXLoader();
         const texLoader = new THREE.TextureLoader();
-
-        function createDebugSphere(scale) {
-            const sphereRadius = 0.5 / scale; 
-            const sphere = new THREE.Mesh(
-                new THREE.SphereGeometry(sphereRadius, 8, 8),
-                new THREE.MeshBasicMaterial({ color: 0xff0000, depthTest: false, depthWrite: false })
-            );
-            sphere.renderOrder = 999;
-            return sphere;
-        }
 
         function loadAsset(folderPath, x, y, z, scale = 0.01, animSpeed = 1.0, rotationOffset = 0) {
             const wrapper = new THREE.Group();
             wrapper.position.set(x, y, z);
             wrapper.scale.set(scale, scale, scale); 
             scene.add(wrapper);
-            wrapper.add(createDebugSphere(scale));
 
             const path = folderPath.endsWith('/') ? folderPath : folderPath + '/';
             const albedoMap = texLoader.load(path + 'albedo.png');
@@ -240,8 +178,7 @@
                     clone.position.set(r * Math.sin(phi) * Math.cos(theta), r * Math.sin(phi) * Math.sin(theta), r * Math.cos(phi));
                     clone.rotation.set(Math.random()*Math.PI, Math.random()*Math.PI, Math.random()*Math.PI);
                     clone.scale.set(scale, scale, scale);
-                    clone.add(createDebugSphere(scale));
-
+                    
                     clone.traverse((child) => {
                         if (child.isMesh) {
                             child.material = new THREE.MeshStandardMaterial({
@@ -274,8 +211,9 @@
         obj2.rotation.y = Math.PI/2;
         let obj3 = loadAsset('meshes/obj2', -2, -1, -7.5, 0.015);
         obj3.rotation.y = Math.PI/2;
-        let obj4 = loadAsset('meshes/obj3', 2, -1.5, -5, 0.02);
-
+        let obj4 = loadAsset('meshes/obj3', 4, -1.5, -7, 0.02);
+        obj4.rotation.y = -Math.PI/2;
+        let obj5 = loadAsset('meshes/obj4', -4, -3, -5, 0.01);
 
         let animatedObj = loadAsset('meshes/aobj0', 0, 0, 0, 0.018, 0.5, Math.PI);
         let clusterRotator = spawnCluster(animatedObj, 'meshes/aobj1', 30, 446, 0.029, 70);
@@ -283,38 +221,6 @@
         const whaleStart = new THREE.Vector3(35, -6, -20); 
         const whaleEnd = new THREE.Vector3(-60, 10, -20); 
         const whaleDuration = 60; 
-
-        // ===============================================
-        // UI LOGIC (WATER ONLY)
-        // ===============================================
-
-        // 1. Water Level Y
-        document.getElementById('sliderLevel').addEventListener('input', (e) => {
-            const val = parseFloat(e.target.value);
-            document.getElementById('valLevel').innerText = val;
-            waterMesh.position.y = val;
-        });
-
-        // 2. Water Position Z (NEW)
-        document.getElementById('sliderPosZ').addEventListener('input', (e) => {
-            const val = parseFloat(e.target.value);
-            document.getElementById('valPosZ').innerText = val;
-            waterMesh.position.z = val;
-        });
-
-        // 3. Water Range (Scale)
-        document.getElementById('sliderRange').addEventListener('input', (e) => {
-            const val = parseFloat(e.target.value);
-            document.getElementById('valRange').innerText = val;
-            waterMesh.scale.set(val, val, 1); 
-        });
-
-        // 4. Wave Strength
-        document.getElementById('sliderStrength').addEventListener('input', (e) => {
-            const val = parseFloat(e.target.value);
-            document.getElementById('valStrength').innerText = val;
-            waterUniforms.uStrength.value = val;
-        });
 
         // ===============================================
         // LOOP
