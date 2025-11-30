@@ -17,6 +17,17 @@
     </script>
 </head>
 <body>
+    <div id="ui-container" style="position: absolute; top: 20px; left: 20px; z-index: 100; color: white; font-family: sans-serif; background: rgba(0,0,0,0.5); padding: 15px; border-radius: 8px;">
+        <h3 style="margin-top: 0;">Firefly Controls</h3>
+        <div style="margin-bottom: 10px;">
+            <label>Size: <span id="sizeValue">0.3</span></label><br>
+            <input type="range" id="sizeSlider" min="0.1" max="3.0" step="0.1" value="0.3">
+        </div>
+        <div style="margin-bottom: 10px;">
+            <label>Count: <span id="countValue">250</span></label><br>
+            <input type="range" id="countSlider" min="0" max="500" step="1" value="250">
+        </div>
+    </div>
     <script type="module">
         import * as THREE from 'three';
         import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
@@ -34,7 +45,7 @@
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.shadowMap.enabled = true;
-        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        renderer.shadowMap.type = THREE.VSMShadowMap; // Better soft shadows
         renderer.toneMapping = THREE.ACESFilmicToneMapping;
         renderer.toneMappingExposure = 0.5;
         document.body.appendChild(renderer.domElement);
@@ -129,16 +140,102 @@
         
         const dirLight = new THREE.DirectionalLight(0xffffff, 3);
         dirLight.castShadow = true; 
-        dirLight.shadow.camera.top = 200;
-        dirLight.shadow.camera.bottom = -200;
-        dirLight.shadow.camera.left = -200;
-        dirLight.shadow.camera.right = 200;
-        dirLight.shadow.camera.near = 1;
-        dirLight.shadow.camera.far = 1000;
-        dirLight.shadow.mapSize.width = 2048; 
-        dirLight.shadow.mapSize.height = 2048;
+        dirLight.shadow.camera.top = 100;
+        dirLight.shadow.camera.bottom = -100;
+        dirLight.shadow.camera.left = -100;
+        dirLight.shadow.camera.right = 100;
+        dirLight.shadow.camera.near = 0.1;
+        dirLight.shadow.camera.far = 500;
+        dirLight.shadow.mapSize.width = 4096; 
+        dirLight.shadow.mapSize.height = 4096;
+        dirLight.shadow.bias = -0.0001; 
+        dirLight.shadow.blurSamples = 8;
+        dirLight.shadow.radius = 4;
         scene.add(dirLight);
-        dirLight.shadow.bias = -0.0005; // <--- ADD THIS
+
+        // --- NIGHT MODE STATE ---
+        let isNight = false; // Target state
+        let nightFactor = 0.0; // Current transition value (0.0 = Day, 1.0 = Night)
+        
+        const nightLight = new THREE.PointLight(0xdb7e0b, 0, 100); // Start intensity 0
+        scene.add(nightLight);
+        nightLight.position.set(0, -7, -1.5);
+        nightLight.visible = true;
+
+        // Transition Colors/Values
+        const fogColorDay = new THREE.Color(0xffffff);
+        const fogColorNight = new THREE.Color(0x084566);
+        const hemiColorDay = new THREE.Color(0xffffff);
+        const hemiColorNight = new THREE.Color(0x666699);
+        const dirColorDay = new THREE.Color(0xffffff);
+        const dirColorNight = new THREE.Color(0xfffcd1);
+        const moonPos = new THREE.Vector3(0, 200, -500);
+        const bgNight = new THREE.Color(0x061b59);
+
+        // --- FIREFLIES ---
+        function getFireflyTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 32;
+            canvas.height = 32;
+            const ctx = canvas.getContext('2d');
+            const gradient = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
+            gradient.addColorStop(0, 'rgba(255,255,255,1)');
+            gradient.addColorStop(0.4, 'rgba(255,255,255,0.8)');
+            gradient.addColorStop(1, 'rgba(255,255,255,0)');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, 32, 32);
+            return new THREE.CanvasTexture(canvas);
+        }
+
+        const maxFireflies = 500;
+        const firefliesGeometry = new THREE.BufferGeometry();
+        const firefliesPos = new Float32Array(maxFireflies * 3);
+        const firefliesColors = new Float32Array(maxFireflies * 3);
+        
+        const fireflyBoids = [];
+        const baseColor = new THREE.Color(0xe68c17); // Bright Yellow
+
+        for(let i = 0; i < maxFireflies; i++) {
+            // Initialize Boid-like properties
+            const position = new THREE.Vector3(
+                (Math.random() - 0.5) * 50,
+                (Math.random() - 0.5) * 20,
+                (Math.random() - 0.5) * 50
+            );
+            const velocity = new THREE.Vector3().randomDirection().multiplyScalar(Math.random() * 0.5 + 0.5);
+            
+            fireflyBoids.push({
+                position: position,
+                velocity: velocity,
+                acceleration: new THREE.Vector3(),
+                maxForce: 0.05,
+                maxSpeed: 2.0
+            });
+
+            firefliesPos[i*3] = position.x;
+            firefliesPos[i*3+1] = position.y;
+            firefliesPos[i*3+2] = position.z;
+
+            firefliesColors[i*3] = baseColor.r;
+            firefliesColors[i*3+1] = baseColor.g;
+            firefliesColors[i*3+2] = baseColor.b;
+        }
+        
+        firefliesGeometry.setAttribute('position', new THREE.BufferAttribute(firefliesPos, 3));
+        firefliesGeometry.setAttribute('color', new THREE.BufferAttribute(firefliesColors, 3));
+
+        const firefliesMaterial = new THREE.PointsMaterial({
+            size: 0.1, // Smaller size
+            map: getFireflyTexture(),
+            vertexColors: true,
+            transparent: true,
+            opacity: 1.0,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false
+        });
+        const fireflies = new THREE.Points(firefliesGeometry, firefliesMaterial);
+        fireflies.visible = false; 
+        scene.add(fireflies);
 
         // --- 4. ASSET LOADERS ---
         const mixers = []; 
@@ -440,24 +537,91 @@
                     camera.rotation.set(0, 0, 0);
                 }
             }
+            if (event.code === 'Space') {
+                isNight = !isNight;
+                fireflies.visible = isNight;
+                // Transition logic is handled in animate()
+            }
         });
 
         const clock = new THREE.Clock(); 
+
+        const sizeSlider = document.getElementById('sizeSlider');
+        const countSlider = document.getElementById('countSlider');
+        const sizeValue = document.getElementById('sizeValue');
+        const countValue = document.getElementById('countValue');
+
+        sizeSlider.addEventListener('input', (e) => {
+            sizeValue.textContent = e.target.value;
+        });
+        countSlider.addEventListener('input', (e) => {
+            countValue.textContent = e.target.value;
+        });
 
         function animate() {
             requestAnimationFrame(animate);
             const delta = clock.getDelta(); 
             const elapsedTime = clock.getElapsedTime();
 
+            // --- DAY/NIGHT TRANSITION ---
+            // Lerp nightFactor towards target (0 or 1)
+            const targetFactor = isNight ? 1.0 : 0.0;
+            if (Math.abs(nightFactor - targetFactor) > 0.001) {
+                const speed = 2.0; // Transition speed
+                nightFactor += (targetFactor - nightFactor) * delta * speed;
+                
+                // Clamp
+                if (isNight && nightFactor > 1.0) nightFactor = 1.0;
+                if (!isNight && nightFactor < 0.0) nightFactor = 0.0;
+
+                // 1. Fog
+                scene.fog.color.lerpColors(fogColorDay, fogColorNight, nightFactor);
+                scene.fog.near = THREE.MathUtils.lerp(1, 10, nightFactor);
+                scene.fog.far = THREE.MathUtils.lerp(29, 20, nightFactor);
+                
+                // 2. Background
+                if (nightFactor > 0.1) {
+                    if (!scene.background) scene.background = new THREE.Color();
+                    scene.background.copy(bgNight).multiplyScalar(nightFactor); // Simple fade in
+                } else {
+                    scene.background = null;
+                }
+
+                // 3. Lights
+                hemiLight.color.lerpColors(hemiColorDay, hemiColorNight, nightFactor);
+                hemiLight.intensity = THREE.MathUtils.lerp(0.6, 0.25, nightFactor);
+
+                dirLight.color.lerpColors(dirColorDay, dirColorNight, nightFactor);
+                dirLight.intensity = THREE.MathUtils.lerp(3, 1.5, nightFactor);
+                
+                nightLight.intensity = THREE.MathUtils.lerp(0, 500, nightFactor);
+
+                // 4. Sky
+                sky.material.uniforms['rayleigh'].value = THREE.MathUtils.lerp(3, 0.1, nightFactor);
+                sky.material.uniforms['turbidity'].value = THREE.MathUtils.lerp(10, 1, nightFactor);
+            }
+
             // UPDATE WATER UNIFORMS
             waterUniforms.uTime.value = elapsedTime;
 
-            // SUN ORBIT
-            const sunTheta = 100 * 0.1; 
+            // SUN/MOON POSITION
+            // Calculate Day Position (Orbit)
+            // Cycle between 30 and 70
+            const minVal = 30;
+            const maxVal = 70;
+            const range = maxVal - minVal;
+            const speed = 10; 
+            const progress = minVal + (elapsedTime * speed) % range;
+            const sunTheta = (progress / 100) * Math.PI * 2; 
             const sunPhi = THREE.MathUtils.degToRad(60); 
-            sunPosition.setFromSphericalCoords(100, sunPhi, sunTheta);
-            sky.material.uniforms['sunPosition'].value.copy(sunPosition);
-            dirLight.position.copy(sunPosition);
+            
+            const currentSunPos = new THREE.Vector3();
+            currentSunPos.setFromSphericalCoords(100, sunPhi, sunTheta);
+            
+            // Lerp between Sun Pos and Moon Pos
+            dirLight.position.lerpVectors(currentSunPos, moonPos, nightFactor);
+            sky.material.uniforms['sunPosition'].value.copy(dirLight.position);
+
 
             for (const mixer of mixers) mixer.update(delta);
 
@@ -468,6 +632,87 @@
             // Update Boids
             for (let boid of boids) {
                 boid.update(boids);
+            }
+
+            // Update Fireflies (Boids Logic)
+            if (isNight) {
+                const sizeVal = parseFloat(sizeSlider.value);
+                const countVal = parseInt(countSlider.value);
+                
+                fireflies.material.size = sizeVal;
+                fireflies.geometry.setDrawRange(0, countVal);
+
+                const positions = fireflies.geometry.attributes.position.array;
+                const perceptionRadius = 10;
+                const separationDist = 5; // Increased separation distance
+
+                // Only update active fireflies
+                for(let i = 0; i < countVal; i++) {
+                    const boid = fireflyBoids[i];
+                    
+                    let separation = new THREE.Vector3();
+                    let alignment = new THREE.Vector3();
+                    let cohesion = new THREE.Vector3();
+                    let count = 0;
+
+                    // Flocking - only check against other active fireflies
+                    for(let j = 0; j < countVal; j++) {
+                        if (i === j) continue;
+                        const other = fireflyBoids[j];
+                        const d = boid.position.distanceTo(other.position);
+                        
+                        if (d < perceptionRadius) {
+                            // Separation
+                            if (d < separationDist) {
+                                let diff = new THREE.Vector3().subVectors(boid.position, other.position);
+                                diff.divideScalar(d);
+                                separation.add(diff);
+                            }
+                            // Alignment
+                            alignment.add(other.velocity);
+                            // Cohesion
+                            cohesion.add(other.position);
+                            count++;
+                        }
+                    }
+
+                    if (count > 0) {
+                        separation.divideScalar(count).setLength(boid.maxSpeed).sub(boid.velocity).clampLength(0, boid.maxForce);
+                        alignment.divideScalar(count).setLength(boid.maxSpeed).sub(boid.velocity).clampLength(0, boid.maxForce);
+                        cohesion.divideScalar(count).sub(boid.position).setLength(boid.maxSpeed).sub(boid.velocity).clampLength(0, boid.maxForce);
+                    }
+
+                    // Center Attraction (Keep them around camera)
+                    const center = camera.position;
+                    const distToCenter = boid.position.distanceTo(center);
+                    const maxDist = 20; // Fixed radius for now
+                    
+                    if (distToCenter > maxDist) {
+                        const toCenter = new THREE.Vector3().subVectors(center, boid.position).normalize().multiplyScalar(0.05);
+                        boid.acceleration.add(toCenter);
+                    }
+
+                    // Orbit/Swirl around camera
+                    const toBoid = new THREE.Vector3().subVectors(boid.position, center);
+                    const orbitDir = new THREE.Vector3(-toBoid.z, 0, toBoid.x).normalize(); // Tangent
+                    boid.acceleration.add(orbitDir.multiplyScalar(0.02));
+
+                    boid.acceleration.add(separation.multiplyScalar(3.0)); // Increased separation force
+                    boid.acceleration.add(alignment.multiplyScalar(1.0));
+                    boid.acceleration.add(cohesion.multiplyScalar(1.0));
+
+                    // Update Physics
+                    boid.velocity.add(boid.acceleration);
+                    boid.velocity.clampLength(0, boid.maxSpeed);
+                    boid.position.add(new THREE.Vector3().copy(boid.velocity).multiplyScalar(delta * 10)); // Speed up slightly
+                    boid.acceleration.set(0, 0, 0);
+
+                    // Update Geometry
+                    positions[i*3] = boid.position.x;
+                    positions[i*3+1] = boid.position.y;
+                    positions[i*3+2] = boid.position.z;
+                }
+                fireflies.geometry.attributes.position.needsUpdate = true;
             }
 
             // Update Orbit Cluster
